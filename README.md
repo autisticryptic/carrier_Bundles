@@ -90,6 +90,12 @@ Pixel 在线构建必须先阅读 [Google Factory Images 条款](https://develop
 
 GitHub 托管 runner 暂不执行 iOS 全量构建。当前 iPhone 16 Pro 路线需要下载约 8 GiB 的根文件系统 AEA、解密大体积 APFS 并使用 FUSE，而且 iOS 规范化导入器尚未完成。等提取器能够稳定生成 catalog 后，再增加带明确磁盘要求的 self-hosted iOS workflow，不能把不完整数据库作为线上制品发布。
 
+## Release 发布
+
+GitHub Release 只接收已经由 `tools/seal_db.py` 封存、再由 `tools/verify_catalog.py` 验证的数据库。发布工作流使用临时 `release-staging/**` 分支传递制品，通过仓库内 `release-assets/manifest.json` 固定 tag、目标 commit、release 标题和说明；目标 commit 必须与远端 `main` 完全相同。Release 附件包括原始 `.sqlite3`、`catalog-summary.json` 和 `SHA256SUMS`。
+
+未完成的平台不会混入已完成数据的 release。当前首个可发布制品是 Pixel 5 (`redfin`) Android 14 `UP1A.231105.001.B2` catalog；iOS 要等 I2 规范化和数据库构建通过相同校验后再发布。
+
 ## iOS 验证基准
 
 首个 iOS 提取样本固定为 iPhone 16 Pro (`iPhone17,1`) 的 Apple 官方 IPSW：iOS 26.6、build `23G71`、baseband `Mav24-2.70.01`。选择该设备是为了覆盖 LTE、5G NSA/SA、VoWiFi 以及可能存在的 VoNR 配置维度；iPhone 8 不作为本项目的 iOS 基准。

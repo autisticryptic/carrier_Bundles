@@ -1,0 +1,67 @@
+name: Publish staged release
+
+on:
+  push:
+    branches:
+      - release-staging/**
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out staged assets
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify staged catalog and prepare metadata
+        id: prepare
+        run: python3 tools/prepare_release.py release-assets/manifest.json
+
+      - name: Require release target to equal main
+        env:
+          TARGET_COMMITISH: ${{ steps.prepare.outputs.target_commitish }}
+        shell: bash
+        run: |
+          remote_main=$(git ls-remote origin refs/heads/main | cut -f 1)
+          if [[ "$TARGET_COMMITISH" != "$remote_main" ]]; then
+            echo "Release target $TARGET_COMMITISH does not equal origin/main $remote_main" >&2
+            exit 1
+          fi
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.prepare.outputs.tag_name }}
+          RELEASE_TITLE: ${{ steps.prepare.outputs.release_name }}
+          TARGET_COMMITISH: ${{ steps.prepare.outputs.target_commitish }}
+          DATABASE_PATH: ${{ steps.prepare.outputs.database_path }}
+          SUMMARY_PATH: ${{ steps.prepare.outputs.summary_path }}
+          CHECKSUMS_PATH: ${{ steps.prepare.outputs.checksums_path }}
+          NOTES_PATH: ${{ steps.prepare.outputs.notes_path }}
+          PRERELEASE: ${{ steps.prepare.outputs.prerelease }}
+        shell: bash
+        run: |
+          arguments=(
+            "$RELEASE_TAG"
+            "$DATABASE_PATH"
+            "$SUMMARY_PATH"
+            "$CHECKSUMS_PATH"
+            --target "$TARGET_COMMITISH"
+            --title "$RELEASE_TITLE"
+            --notes-file "$NOTES_PATH"
+          )
+          if [[ "$PRERELEASE" == "true" ]]; then
+            arguments+=(--prerelease)
+          fi
+          gh release create "${arguments[@]}"
+
