@@ -44,6 +44,46 @@ Apple 官方 IPSW/CDN
   -> 字段证据与规范配置写入根 SQLite
 ```
 
+## 构建
+
+完整构建会从 Apple CDN 获取固定 IPSW 中需要的成员，并自动完成 AEA 解密、APFS 挂载、bundle 导出、SQLite 导入、图标打包和只读封存：
+
+```bash
+python3 ios/build_catalog.py
+```
+
+需要 Python 3、Git、Go、Rust/Cargo、FUSE 3 和约 20 GiB 可用空间。中间文件保存在 `data/tmp/ios/iphone16pro-23g71`，失败时保留 `.building` 数据库供检查，现有正式输出不会被覆盖。
+
+如果 Carrier/Country Bundle 已经导出，可以跳过 IPSW、AEA 和 APFS 步骤：
+
+```bash
+python3 ios/build_catalog.py \
+  --bundle-root data/tmp/ios/iphone16pro-23g71/carrier-extract \
+  --baseband data/tmp/ios/iphone16pro-23g71/outer/Mav24-2.70.01.Release.bbfw
+```
+
+`--baseband` 是可选的；省略时离线构建不会写入 `.bbfw` inventory。默认输出为 `data/carrier-bundles-iphone-16-pro-iphone17-1-23g71.sqlite3`。已有输出必须先改名或指定新的 `--output`，构建器不会覆盖它。
+
+## 当前结果
+
+iPhone 16 Pro 样本的 I1 获取/提取和 I2 规范化已经完成。最终 schema v6 catalog 包含：
+
+| 内容 | 数量 |
+|---|---:|
+| Carrier profile | 1915 |
+| access 配置 | 1857 |
+| IMS 配置 | 1218 |
+| IKE 配置 | 690 |
+| SIP REGISTER 配置 | 794 |
+| SIP Contact 参数 | 1734 |
+| service capability | 4627 |
+| endpoint | 1445 |
+| 图标 BLOB | 243 |
+| raw public-static value | 3809 |
+| field evidence | 4973 |
+
+该结果通过 SQLite `quick_check`、外键检查、重复匹配规则检查和用户身份列检查。数据库不包含从 SIM/ISIM 或真实设备读取的用户数据。
+
 ## 主要映射
 
 | iOS 信息 | 主 schema |
@@ -61,8 +101,8 @@ Apple 官方 IPSW/CDN
 
 适配器不能输出 IMSI、ICCID、MSISDN、IMEI、IMPI/IMPU 实值、SIM 密钥或 AKA 会话材料。
 
-完整路线、参考项目和里程碑见 [`docs/提取器路线图.md`](../docs/提取器路线图.md)。当前正在以 iPhone 16 Pro 样本实现 I1 获取/提取和 I2 规范化；后续代码和平台测试直接放在本项目目录中。大型 IPSW、解包目录及生成数据库不提交。
+完整路线、参考项目和里程碑见 [`docs/提取器路线图.md`](../docs/提取器路线图.md)。iPhone 16 Pro 样本已经完成 I1 获取/提取和 I2 规范化；后续设备适配代码和平台测试继续放在本项目目录中。大型 IPSW、解包目录及生成数据库不提交。
 
 ## GitHub Actions 边界
 
-常规 CI 会检查 iOS Python 模块的语法，但暂不提供 GitHub 托管 runner 上的 iOS catalog 构建。iPhone 16 Pro 样本需要约 8 GiB AEA、解密后的大体积 APFS、可用的 `/dev/fuse`，而当前 I2 规范化导入器尚未完成。发布线上构建前必须先做到：给定 IPSW/build 可稳定导出 Carrier/Country Bundle、生成 schema v5 数据库、通过 `tools/verify_catalog.py`，并在有明确磁盘容量和 FUSE 权限的 self-hosted runner 上验证。
+常规 CI 会检查 iOS Python 模块的语法。iPhone 16 Pro 样本需要约 8 GiB AEA、解密后的大体积 APFS 和可用的 `/dev/fuse`，因此 GitHub 托管 runner 暂不执行完整提取；发布线上构建前必须在有明确磁盘容量和 FUSE 权限的 self-hosted runner 上验证。规范化导入器输出 schema v6，并继续通过 `tools/verify_catalog.py` 和平台测试校验。

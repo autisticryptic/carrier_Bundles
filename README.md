@@ -79,6 +79,24 @@ python3 android/pixel/build_catalog.py \
 
 系统依赖是 Python 3、Git 和 7-Zip；Python protobuf 环境由脚本自动建立。完整参数、离线构建和当前字段边界见 [`android/pixel/README.md`](./android/pixel/README.md)。
 
+## iOS 自动构建
+
+iOS 提取器固定从 iPhone 16 Pro (`iPhone17,1`) iOS 26.6 `23G71` 官方 IPSW 获取 Carrier/Country Bundle，归一化配置、打包图标并封存：
+
+```bash
+python3 ios/build_catalog.py
+```
+
+下载和 APFS 提取已完成后，可以直接复用导出的 bundle 目录，不再下载约 8 GiB 的 RootFS 成员：
+
+```bash
+python3 ios/build_catalog.py \
+  --bundle-root data/tmp/ios/iphone16pro-23g71/carrier-extract \
+  --baseband data/tmp/ios/iphone16pro-23g71/outer/Mav24-2.70.01.Release.bbfw
+```
+
+完整参数、系统依赖和证据边界见 [`ios/README.md`](./ios/README.md)。
+
 ## GitHub Actions 在线构建
 
 仓库包含两条线上流程：
@@ -88,13 +106,13 @@ python3 android/pixel/build_catalog.py \
 
 Pixel 在线构建必须先阅读 [Google Factory Images 条款](https://developers.google.com/android/images)，并在手动表单中确认接受。Factory ZIP、解包镜像和缓存只存在于临时 runner，不会进入 artifact；artifact 只包含最终 SQLite 和 `catalog-summary.json`。建议正式发布固定 `build_id`，不要使用 `latest`。
 
-GitHub 托管 runner 暂不执行 iOS 全量构建。当前 iPhone 16 Pro 路线需要下载约 8 GiB 的根文件系统 AEA、解密大体积 APFS 并使用 FUSE，而且 iOS 规范化导入器尚未完成。等提取器能够稳定生成 catalog 后，再增加带明确磁盘要求的 self-hosted iOS workflow，不能把不完整数据库作为线上制品发布。
+GitHub 托管 runner 暂不执行 iOS 全量提取。iOS 规范化和数据库构建已经完成，但 iPhone 16 Pro 路线需要下载约 8 GiB 的根文件系统 AEA、解密约 9 GiB 的 APFS 并使用 FUSE；后续应在有明确磁盘容量和 `/dev/fuse` 权限的 self-hosted runner 上自动化。常规 CI 仍会测试 iOS 解析器，已在本地封存并验证的 iOS catalog 可通过发布工作流上传。
 
 ## Release 发布
 
 GitHub Release 只接收已经由 `tools/seal_db.py` 封存、再由 `tools/verify_catalog.py` 验证的数据库。发布工作流使用临时 `release-staging/**` 分支传递制品，通过仓库内 `release-assets/manifest.json` 固定 tag、目标 commit、release 标题和说明；目标 commit 必须与远端 `main` 完全相同。Release 附件包括原始 `.sqlite3`、`catalog-summary.json` 和 `SHA256SUMS`。
 
-未完成的平台不会混入已完成数据的 release。当前首个可发布制品是 Pixel 5 (`redfin`) Android 14 `UP1A.231105.001.B2` catalog；iOS 要等 I2 规范化和数据库构建通过相同校验后再发布。
+未完成的平台不会混入已完成数据的 release。Pixel 5 (`redfin`) Android 14 `UP1A.231105.001.B2` 和 iPhone 16 Pro (`iPhone17,1`) iOS 26.6 `23G71` 分别发布独立 catalog，避免不同设备和来源被静默合并。
 
 ## iOS 验证基准
 
@@ -119,10 +137,11 @@ WHERE c.plmn = '310260';
 
 ## 当前状态
 
-- SQLite schema v5 已可初始化、查询、嵌入图标和只读封存。
+- SQLite schema v6 已可初始化、查询、嵌入图标和只读封存；v6 新增了 Apple IKE DPD、NAT keepalive 和 ePDG 证书校验字段。
 - Pixel Factory Image 提取器已实现下载校验、sparse/ext4 解包、CarrierSettings 归一化、MCFG inventory 和一键构建。
 - NekokoLPA2 图标同步/打包器与首批 fallback badge 已建立。
 - Pixel 5 `redfin` Android 14 首个实测 catalog 包含 819 个 profile、2026 条 access 配置、117 个 MCFG inventory 和 115 个图标。
 - Pixel catalog 在文件名和数据库来源元数据中同时记录机型名称、设备代号、build 与 baseband，后续 Pixel 9+ 构建不会与 Pixel 5 数据混淆。
 - Qualcomm MCFG 内部语义、Pixel 6+ Tensor modem 和 Samsung 提取器仍待实现。
-- iOS 已进入 I1 实测：使用 iPhone 16 Pro (`iPhone17,1`) iOS 26.6 `23G71` 官方 IPSW 验证按成员提取、AEA 解密和 Carrier/Country Bundle 定位。
+- iOS I1/I2 已完成：iPhone 16 Pro (`iPhone17,1`) iOS 26.6 `23G71` catalog 包含 1915 个 profile、1857 条 access 配置、1218 条 IMS 配置、690 条 IKE 配置和 243 个图标。
+- iOS 构建已验证远端 ZIP64 单成员下载、AEA 解密、APFS 导出、D93 override/MVNO 合并、字段证据和只读封存；`.bbfw` 仍只做版本与哈希 inventory。

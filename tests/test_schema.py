@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+from contextlib import closing
 from pathlib import Path
 
 
@@ -345,7 +346,7 @@ icon_scope = "worldwide"
                 capture_output=True,
                 text=True,
             )
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 connection.execute(
                     """INSERT INTO carriers(
                            carrier_id, canonical_name, brand_name, country_iso2
@@ -384,7 +385,7 @@ icon_scope = "worldwide"
             )
             self.assertEqual(repeated.assets_embedded, 2)
 
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 carrier_asset, profile_asset = connection.execute(
                     """SELECT c.primary_asset_id, cp.profile_asset_id
                        FROM carriers AS c
@@ -444,7 +445,7 @@ icon_scope = "worldwide"
                 0,
             )
             uri = f"{database.resolve().as_uri()}?mode=ro&immutable=1"
-            with sqlite3.connect(uri, uri=True) as readonly:
+            with closing(sqlite3.connect(uri, uri=True)) as readonly:
                 self.assertEqual(
                     readonly.execute(
                         "SELECT sealed FROM catalog_release"

@@ -14,6 +14,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import defaultdict
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -352,7 +353,7 @@ def package_database(
     if not database.is_file():
         raise RuntimeError(f"database does not exist: {database}")
 
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         _verify_build_database(connection)
         targets = _database_targets(connection)
 

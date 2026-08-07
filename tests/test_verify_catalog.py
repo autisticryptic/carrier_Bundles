@@ -43,6 +43,8 @@ class VerifyCatalogTests(unittest.TestCase):
             result = verify_catalog(database)
             self.assertEqual(result["release_id"], "verify-test")
             self.assertEqual(result["generator_version"], "test-suite")
+            self.assertEqual(result["schema_version"], 6)
+            self.assertEqual(result["application_id"], 1128419922)
             self.assertEqual(result["quick_check"], "ok")
             self.assertEqual(result["foreign_key_check"], "ok")
             self.assertEqual(result["counts"]["carrier_profiles"], 0)
@@ -50,4 +52,3 @@ class VerifyCatalogTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

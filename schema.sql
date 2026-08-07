@@ -1,4 +1,4 @@
--- Carrier Bundles canonical catalog schema (v5)
+-- Carrier Bundles canonical catalog schema (v6)
 --
 -- This database is a build artifact. Extractors write a NEW database, seal it,
 -- and publish it atomically. Applications must open the published file with:
@@ -6,7 +6,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA application_id = 1128419922; -- ASCII-ish marker for Carrier Bundles
-PRAGMA user_version = 5;
+PRAGMA user_version = 6;
 
 BEGIN;
 
@@ -17,7 +17,7 @@ CREATE TABLE schema_metadata (
 
 INSERT INTO schema_metadata(key, value) VALUES
     ('schema_name', 'carrier_bundles'),
-    ('schema_version', '5'),
+    ('schema_version', '6'),
     ('data_model', 'immutable_firmware_catalog');
 
 -- Exactly one release row exists in a published database.
@@ -228,8 +228,12 @@ CREATE TABLE ike_configs (
     request_pcscf INTEGER NOT NULL DEFAULT 1 CHECK (request_pcscf IN (0, 1)),
     request_dns INTEGER NOT NULL DEFAULT 0 CHECK (request_dns IN (0, 1)),
     nat_traversal INTEGER NOT NULL DEFAULT 1 CHECK (nat_traversal IN (0, 1)),
+    nat_keepalive_enabled INTEGER CHECK (nat_keepalive_enabled IS NULL OR nat_keepalive_enabled IN (0, 1)),
     nat_keepalive_seconds INTEGER CHECK (nat_keepalive_seconds IS NULL OR nat_keepalive_seconds > 0),
+    dpd_enabled INTEGER CHECK (dpd_enabled IS NULL OR dpd_enabled IN (0, 1)),
     dpd_interval_seconds INTEGER CHECK (dpd_interval_seconds IS NULL OR dpd_interval_seconds > 0),
+    dpd_retry_interval_seconds INTEGER CHECK (dpd_retry_interval_seconds IS NULL OR dpd_retry_interval_seconds > 0),
+    dpd_max_retries INTEGER CHECK (dpd_max_retries IS NULL OR dpd_max_retries >= 0),
     reauth_interval_seconds INTEGER CHECK (reauth_interval_seconds IS NULL OR reauth_interval_seconds > 0),
     ike_sa_lifetime_seconds INTEGER CHECK (ike_sa_lifetime_seconds IS NULL OR ike_sa_lifetime_seconds > 0),
     child_sa_lifetime_seconds INTEGER CHECK (child_sa_lifetime_seconds IS NULL OR child_sa_lifetime_seconds > 0),
@@ -238,7 +242,9 @@ CREATE TABLE ike_configs (
     mobike INTEGER CHECK (mobike IS NULL OR mobike IN (0, 1)),
     fragmentation INTEGER CHECK (fragmentation IS NULL OR fragmentation IN (0, 1)),
     certificate_policy TEXT CHECK (certificate_policy IS NULL OR certificate_policy IN ('system_trust', 'pinned_ca', 'pinned_spki', 'not_applicable')),
+    validate_remote_certificate INTEGER CHECK (validate_remote_certificate IS NULL OR validate_remote_certificate IN (0, 1)),
     trusted_ca_ref TEXT,
+    certificate_hostname TEXT,
     local_traffic_selector_template TEXT,
     remote_traffic_selector_template TEXT
 ) WITHOUT ROWID;

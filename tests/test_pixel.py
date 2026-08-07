@@ -1,6 +1,7 @@
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 
@@ -73,13 +74,14 @@ class PixelCatalogTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             database = root / "pixel.sqlite3"
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 connection.executescript((ROOT / "schema.sql").read_text(encoding="utf-8"))
                 connection.execute(
                     """INSERT INTO catalog_release(
                            singleton, release_id, generated_at, generator_version
                        ) VALUES (1, 'pixel-test', '2026-08-07T00:00:00Z', 'test')"""
                 )
+                connection.commit()
 
             carrier_dir = root / "CarrierSettings"
             carrier_dir.mkdir()
@@ -130,7 +132,7 @@ class PixelCatalogTests(unittest.TestCase):
             self.assertEqual(stats.access_configs_imported, 6)
             self.assertEqual(stats.mcfg_files_inventoried, 1)
 
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 raw_count, distinct_keys = connection.execute(
                     """SELECT count(*), count(DISTINCT source_path || ':' || key_path)
                        FROM raw_config_values

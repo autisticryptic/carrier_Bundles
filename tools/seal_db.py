@@ -7,6 +7,7 @@ import sqlite3
 import stat
 import sys
 import urllib.error
+from contextlib import closing
 from pathlib import Path
 
 
@@ -67,7 +68,7 @@ def main() -> None:
             f"{result.nekokolpa2_revision}"
         )
 
-    with sqlite3.connect(args.database) as connection:
+    with closing(sqlite3.connect(args.database)) as connection, connection:
         connection.execute("PRAGMA foreign_keys = ON")
         if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
             raise SystemExit("foreign_key_check failed")

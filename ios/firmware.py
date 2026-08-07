@@ -14,6 +14,7 @@ import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 
+from .remote_zip import download_remote_member, locate_remote_member
 from .sources import IPSWArtifact, inspect_build_manifest
 
 
@@ -140,16 +141,33 @@ def extract_remote_outer_files(
 
 
 def extract_file_system_aea(
-    tool: Path, artifact: IPSWArtifact, output: Path, local_ipsw: Path | None = None
+    tool: Path,
+    artifact: IPSWArtifact,
+    output: Path,
+    local_ipsw: Path | None = None,
+    *,
+    workers: int = 8,
 ) -> Path:
-    arguments = [str(tool), "extract"]
-    if local_ipsw is None:
-        arguments.append("--remote")
-    arguments.extend(("--dmg", "fs", "--output", str(output)))
-    arguments.append(str(local_ipsw) if local_ipsw is not None else artifact.url)
-    subprocess.run(arguments, check=True)
     if not artifact.file_system_path:
         raise ValueError("filesystem path was not resolved from BuildManifest")
+    if local_ipsw is None:
+        member = locate_remote_member(artifact.url, artifact.file_system_path)
+        destination = (
+            output
+            / f"{artifact.build_id}__{artifact.product_type}"
+            / Path(artifact.file_system_path).name
+        )
+        return download_remote_member(
+            member,
+            destination,
+            range_dir=output / "ranges",
+            workers=workers,
+        ).path
+
+    arguments = [str(tool), "extract"]
+    arguments.extend(("--dmg", "fs", "--output", str(output)))
+    arguments.append(str(local_ipsw))
+    subprocess.run(arguments, check=True)
     matches = list(output.rglob(Path(artifact.file_system_path).name))
     if len(matches) != 1:
         raise ValueError(f"expected one filesystem AEA, found {len(matches)}")
@@ -183,7 +201,10 @@ def mounted_apfs(apfs_fuse: Path, image: Path, mountpoint: Path) -> Iterator[Pat
     else:
         raise RuntimeError(f"APFS image did not mount at {mountpoint}")
     try:
-        yield mountpoint
+        # apfs-fuse exposes the selected volume below a synthetic ``root``
+        # directory, while other FUSE implementations expose it directly.
+        volume_root = mountpoint / "root"
+        yield volume_root if volume_root.is_dir() else mountpoint
     finally:
         subprocess.run(["fusermount3", "-u", str(mountpoint)], check=True)
 
@@ -208,4 +229,3 @@ def export_carrier_bundles(mountpoint: Path, destination: Path) -> list[Path]:
     if not exported:
         raise FileNotFoundError("no iPhone Carrier Bundle or Country Bundle tree found")
     return exported
-

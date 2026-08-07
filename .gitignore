@@ -5,6 +5,7 @@ data/*.sqlite3
 data/*.db-wal
 data/*.db-shm
 data/*.db-journal
+data/*.building
 
 # Extracted firmware and temporary work files
 data/raw/

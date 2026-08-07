@@ -19,7 +19,7 @@ python3 android/pixel/build_catalog.py \
 
 ```text
 Google 官方元数据 -> 下载/SHA-256 校验 -> Factory ZIP/partition 解包
-  -> CarrierSettings protobuf 解析 -> MCFG 制品清单 -> schema v5
+  -> CarrierSettings protobuf 解析 -> MCFG 制品清单 -> schema v6
   -> NekokoLPA2 图标匹配/下载 -> 完整性检查 -> 只读封存/原子发布
 ```
 

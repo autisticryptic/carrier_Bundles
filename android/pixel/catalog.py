@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -586,7 +587,7 @@ def import_pixel_catalog(
     carrier_list_version, records = load_carrier_settings(firmware.carrier_settings_dir)
     stats.carrier_settings_seen = len(records)
 
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("PRAGMA foreign_keys = ON")
         release = connection.execute(
             "SELECT sealed FROM catalog_release WHERE singleton = 1"

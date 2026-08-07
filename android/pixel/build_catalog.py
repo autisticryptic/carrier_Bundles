@@ -11,6 +11,7 @@ import sqlite3
 import subprocess
 import sys
 import venv
+from contextlib import closing
 from dataclasses import asdict, replace
 from pathlib import Path
 
@@ -175,7 +176,7 @@ def _label_release(database: Path, artifact: FactoryArtifact) -> None:
         f"Google {artifact.device_name} ({artifact.device}) factory image; "
         f"Android {artifact.os_version}; build {artifact.build_id}."
     )
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(
             "UPDATE catalog_release SET notes = ? WHERE singleton = 1", (notes,)
         )

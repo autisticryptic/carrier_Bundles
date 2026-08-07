@@ -3,6 +3,7 @@
 
 import argparse
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,7 +23,7 @@ def main() -> None:
 
     args.database.parent.mkdir(parents=True, exist_ok=True)
     schema = (ROOT / "schema.sql").read_text(encoding="utf-8")
-    with sqlite3.connect(args.database) as connection:
+    with closing(sqlite3.connect(args.database)) as connection, connection:
         connection.executescript(schema)
         connection.execute(
             """INSERT INTO catalog_release(

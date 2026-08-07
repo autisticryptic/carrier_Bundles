@@ -7,6 +7,7 @@ import argparse
 import json
 import sqlite3
 import stat
+from contextlib import closing
 from pathlib import Path
 
 
@@ -28,7 +29,7 @@ def verify_catalog(database: Path) -> dict[str, object]:
         raise ValueError("catalog file is not sealed read-only")
 
     uri = f"{database.resolve().as_uri()}?mode=ro&immutable=1"
-    with sqlite3.connect(uri, uri=True) as connection:
+    with closing(sqlite3.connect(uri, uri=True)) as connection, connection:
         connection.execute("PRAGMA foreign_keys = ON")
         quick_check = connection.execute("PRAGMA quick_check").fetchone()
         if quick_check is None or quick_check[0] != "ok":
@@ -36,6 +37,13 @@ def verify_catalog(database: Path) -> dict[str, object]:
         foreign_key_error = connection.execute("PRAGMA foreign_key_check").fetchone()
         if foreign_key_error is not None:
             raise ValueError(f"foreign_key_check failed: {foreign_key_error}")
+        application_id = connection.execute("PRAGMA application_id").fetchone()[0]
+        user_version = connection.execute("PRAGMA user_version").fetchone()[0]
+        metadata = dict(connection.execute("SELECT key, value FROM schema_metadata"))
+        if metadata.get("schema_name") != "carrier_bundles":
+            raise ValueError("unexpected or missing schema_name")
+        if metadata.get("schema_version") != str(user_version):
+            raise ValueError("schema_metadata version does not match PRAGMA user_version")
         release = connection.execute(
             """SELECT release_id, generated_at, generator_version, sealed
                FROM catalog_release WHERE singleton = 1"""
@@ -60,6 +68,8 @@ def verify_catalog(database: Path) -> dict[str, object]:
         "release_id": release[0],
         "generated_at": release[1],
         "generator_version": release[2],
+        "application_id": application_id,
+        "schema_version": user_version,
         "sealed": True,
         "quick_check": "ok",
         "foreign_key_check": "ok",
@@ -80,4 +90,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
