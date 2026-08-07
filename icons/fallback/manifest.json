@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "notice": "These are project-generated neutral fallback badges, not official operator logos.",
+  "references": [
+    "https://github.com/iebb/NekokoLPA",
+    "https://github.com/iebb/NekokoLPA2",
+    "https://operator-icons.pages.dev"
+  ],
+  "assets": [
+    {
+      "asset_id": "badge-cn-china-mobile",
+      "carrier_id": "cn-china-mobile",
+      "plmns": ["46000", "46002"],
+      "path": "icons/fallback/cn-china-mobile.svg",
+      "media_type": "image/svg+xml",
+      "width": 64,
+      "height": 64,
+      "sha256": "46931d61d7740b4db0d5a7a9ddcaa11383d66e97781205946a41824643106262",
+      "source_name": "carrier-bundles project-generated fallback",
+      "official": false,
+      "upstream_logo_url": "https://operator-icons.pages.dev/icons/460/china-mobile.png"
+    },
+    {
+      "asset_id": "badge-cn-china-unicom",
+      "carrier_id": "cn-china-unicom",
+      "plmns": ["46001", "46009"],
+      "path": "icons/fallback/cn-china-unicom.svg",
+      "media_type": "image/svg+xml",
+      "width": 64,
+      "height": 64,
+      "sha256": "2a19dc1842f88d86263baa408c6940f59fc378ea708ab42c6718b3e50efbdece",
+      "source_name": "carrier-bundles project-generated fallback",
+      "official": false,
+      "upstream_logo_url": "https://operator-icons.pages.dev/icons/460/china-unicom.png"
+    },
+    {
+      "asset_id": "badge-cn-china-telecom",
+      "carrier_id": "cn-china-telecom",
+      "plmns": ["46003", "46011"],
+      "path": "icons/fallback/cn-china-telecom.svg",
+      "media_type": "image/svg+xml",
+      "width": 64,
+      "height": 64,
+      "sha256": "622458a9faab079448f32c57fdeb0c8a8e6d98db6f14dd4efd15e9c49a5e00bc",
+      "source_name": "carrier-bundles project-generated fallback",
+      "official": false,
+      "upstream_logo_url": "https://operator-icons.pages.dev/icons/460/china-telecom.png"
+    },
+    {
+      "asset_id": "badge-us-t-mobile",
+      "carrier_id": "us-t-mobile",
+      "plmns": ["310240", "310260"],
+      "path": "icons/fallback/us-t-mobile.svg",
+      "media_type": "image/svg+xml",
+      "width": 64,
+      "height": 64,
+      "sha256": "a6029da15a6145c91ab4436259a42dd9ec91cef5bb10ee3b95802a2256347a15",
+      "source_name": "carrier-bundles project-generated fallback",
+      "official": false,
+      "upstream_logo_url": "https://operator-icons.pages.dev/icons/worldwide/t-mobile.png"
+    },
+    {
+      "asset_id": "badge-us-att",
+      "carrier_id": "us-att",
+      "plmns": ["310150", "310280", "310380", "310410"],
+      "path": "icons/fallback/us-att.svg",
+      "media_type": "image/svg+xml",
+      "width": 64,
+      "height": 64,
+      "sha256": "164f7ccfacc174a23824984e4146d8236b2d70fec8489691d034726a57ff48bd",
+      "source_name": "carrier-bundles project-generated fallback",
+      "official": false,
+      "upstream_logo_url": "https://operator-icons.pages.dev/icons/310/at-and-t.png"
+    }
+  ]
+}

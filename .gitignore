@@ -1,0 +1,23 @@
+# Generated databases and SQLite sidecar files
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/*.db-wal
+data/*.db-shm
+data/*.db-journal
+
+# Extracted firmware and temporary work files
+data/raw/
+data/tmp/
+*.ipsw
+*.img
+*.bin
+
+# Python tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Refreshed on demand by icons/package_icons.py; do not vendor its nested .git.
+icons/vendor/NekokoLPA2/
