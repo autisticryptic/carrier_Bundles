@@ -1,5 +1,7 @@
 # Carrier Bundles
 
+[![CI](https://github.com/autisticryptic/carrier_Bundles/actions/workflows/ci.yml/badge.svg)](https://github.com/autisticryptic/carrier_Bundles/actions/workflows/ci.yml)
+
 从 iOS、Android 和 modem 固件中提取 IMS、VoLTE、VoNR、VoWiFi 的**公共静态运营商配置**，生成供外部项目只读查询的 SQLite catalog。
 
 这个仓库不是用户态 IMS 客户端，也不保存 SIM、用户、线路或注册日志。数据库只随固件/基带来源更新而重新构建。
@@ -76,6 +78,17 @@ python3 android/pixel/build_catalog.py \
 ```
 
 系统依赖是 Python 3、Git 和 7-Zip；Python protobuf 环境由脚本自动建立。完整参数、离线构建和当前字段边界见 [`android/pixel/README.md`](./android/pixel/README.md)。
+
+## GitHub Actions 在线构建
+
+仓库包含两条线上流程：
+
+- `CI`：每次 push/PR 自动在 Python 3.11 和 3.13 上执行语法检查及全部单元测试。
+- `Build Pixel catalog`：从 GitHub 的 **Actions -> Build Pixel catalog -> Run workflow** 手动选择设备代号、机型名称和官方 build，生成已封存的 SQLite，并以 artifact 保留 14 天。
+
+Pixel 在线构建必须先阅读 [Google Factory Images 条款](https://developers.google.com/android/images)，并在手动表单中确认接受。Factory ZIP、解包镜像和缓存只存在于临时 runner，不会进入 artifact；artifact 只包含最终 SQLite 和 `catalog-summary.json`。建议正式发布固定 `build_id`，不要使用 `latest`。
+
+GitHub 托管 runner 暂不执行 iOS 全量构建。当前 iPhone 16 Pro 路线需要下载约 8 GiB 的根文件系统 AEA、解密大体积 APFS 并使用 FUSE，而且 iOS 规范化导入器尚未完成。等提取器能够稳定生成 catalog 后，再增加带明确磁盘要求的 self-hosted iOS workflow，不能把不完整数据库作为线上制品发布。
 
 ## iOS 验证基准
 

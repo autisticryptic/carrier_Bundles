@@ -1,0 +1,112 @@
+name: Build Pixel catalog
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: Pixel device codename, for example redfin or tokay
+        required: true
+        default: redfin
+        type: string
+      device_name:
+        description: Marketing model name stored in catalog metadata
+        required: true
+        default: Pixel 5
+        type: string
+      build_id:
+        description: Exact official build ID; latest is allowed but not reproducible
+        required: true
+        default: UP1A.231105.001.B2
+        type: string
+      accept_google_terms:
+        description: I have reviewed and accept the Google Factory Images terms
+        required: true
+        default: false
+        type: boolean
+      include_icons:
+        description: Download and embed matching operator icons
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ inputs.device_name }} / ${{ inputs.build_id }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    env:
+      DEVICE: ${{ inputs.device }}
+      DEVICE_NAME: ${{ inputs.device_name }}
+      BUILD_ID: ${{ inputs.build_id }}
+      ACCEPT_GOOGLE_TERMS: ${{ inputs.accept_google_terms }}
+      INCLUDE_ICONS: ${{ inputs.include_icons }}
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    steps:
+      - name: Require Factory Images terms acknowledgement
+        shell: bash
+        run: |
+          if [[ "$ACCEPT_GOOGLE_TERMS" != "true" ]]; then
+            echo "Review https://developers.google.com/android/images and rerun with acknowledgement enabled." >&2
+            exit 1
+          fi
+
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
+      - name: Install image extraction tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends p7zip-full
+
+      - name: Show available runner storage
+        run: df -h "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
+
+      - name: Build sealed SQLite catalog
+        shell: bash
+        run: |
+          output_path="$RUNNER_TEMP/carrier-bundles-pixel.sqlite3"
+          arguments=(
+            --device "$DEVICE"
+            --device-name "$DEVICE_NAME"
+            --build-id "$BUILD_ID"
+            --accept-google-terms
+            --output "$output_path"
+          )
+          if [[ "$INCLUDE_ICONS" != "true" ]]; then
+            arguments+=(--skip-icon-sync)
+          fi
+          python3 android/pixel/build_catalog.py "${arguments[@]}"
+
+      - name: Verify catalog
+        shell: bash
+        run: |
+          output_path="$RUNNER_TEMP/carrier-bundles-pixel.sqlite3"
+          summary_path="$RUNNER_TEMP/catalog-summary.json"
+          python3 tools/verify_catalog.py "$output_path" | tee "$summary_path"
+          {
+            echo '### Pixel catalog verification'
+            echo '```json'
+            cat "$summary_path"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload catalog artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pixel-carrier-bundles-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/carrier-bundles-pixel.sqlite3
+            ${{ runner.temp }}/catalog-summary.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

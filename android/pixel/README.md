@@ -43,6 +43,17 @@ python3 android/pixel/build_catalog.py \
 
 离线但希望继续打包图标时，去掉 `--skip-icon-sync`；固定已有 NekokoLPA2 checkout 时加 `--no-icon-repo-update`。
 
+## GitHub Actions
+
+可以在仓库的 **Actions -> Build Pixel catalog -> Run workflow** 手动构建。表单中的 `device` 是设备代号，`device_name` 是写入来源元数据的营销名称，`build_id` 应尽量填写固定的官方构建号。运行前必须阅读 Google Factory Images 条款并勾选确认；未确认时 workflow 会在下载前退出。
+
+成功运行后下载 `pixel-carrier-bundles-<run-id>` artifact，其中包含：
+
+- `carrier-bundles-pixel.sqlite3`：已通过完整性检查并封存为只读的 catalog。
+- `catalog-summary.json`：release、生成器版本和主要表记录数。
+
+线上构建不缓存或上传 Factory ZIP、`product.img`、`vendor.img` 和 MCFG 原文件。artifact 默认保留 14 天；它是构建结果，不会自动创建 GitHub Release。
+
 ## 当前提取范围
 
 - 从 `product.img/etc/CarrierSettings` 读取 `carrier_list.pb`、`others.pb` 和设备专用 protobuf。

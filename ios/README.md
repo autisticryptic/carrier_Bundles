@@ -62,3 +62,7 @@ Apple 官方 IPSW/CDN
 适配器不能输出 IMSI、ICCID、MSISDN、IMEI、IMPI/IMPU 实值、SIM 密钥或 AKA 会话材料。
 
 完整路线、参考项目和里程碑见 [`docs/提取器路线图.md`](../docs/提取器路线图.md)。当前正在以 iPhone 16 Pro 样本实现 I1 获取/提取和 I2 规范化；后续代码和平台测试直接放在本项目目录中。大型 IPSW、解包目录及生成数据库不提交。
+
+## GitHub Actions 边界
+
+常规 CI 会检查 iOS Python 模块的语法，但暂不提供 GitHub 托管 runner 上的 iOS catalog 构建。iPhone 16 Pro 样本需要约 8 GiB AEA、解密后的大体积 APFS、可用的 `/dev/fuse`，而当前 I2 规范化导入器尚未完成。发布线上构建前必须先做到：给定 IPSW/build 可稳定导出 Carrier/Country Bundle、生成 schema v5 数据库、通过 `tools/verify_catalog.py`，并在有明确磁盘容量和 FUSE 权限的 self-hosted runner 上验证。
