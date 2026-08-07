@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -58,6 +59,21 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _restore_sealed_permissions(path: Path) -> None:
+    """Restore read-only mode lost when a catalog passes through Git."""
+
+    current = path.stat().st_mode
+    readonly = (current | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH) & ~(
+        stat.S_IWUSR
+        | stat.S_IWGRP
+        | stat.S_IWOTH
+        | stat.S_IXUSR
+        | stat.S_IXGRP
+        | stat.S_IXOTH
+    )
+    path.chmod(readonly)
+
+
 def prepare_release(manifest_path: Path, *, root: Path = ROOT) -> PreparedRelease:
     with manifest_path.open("r", encoding="utf-8") as stream:
         manifest = json.load(stream)
@@ -82,6 +98,7 @@ def prepare_release(manifest_path: Path, *, root: Path = ROOT) -> PreparedReleas
     if not notes.is_file():
         raise ValueError(f"release notes do not exist: {notes}")
 
+    _restore_sealed_permissions(database)
     summary = verify_catalog(database)
     output_dir = manifest_path.resolve().parent
     summary_path = output_dir / "catalog-summary.json"
@@ -150,4 +167,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

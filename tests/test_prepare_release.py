@@ -1,4 +1,5 @@
 import json
+import stat
 import subprocess
 import sys
 import tempfile
@@ -41,6 +42,9 @@ class PrepareReleaseTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
+            # Git restores blobs as writable files even when the source catalog
+            # was sealed. Release preparation must restore the lost mode bits.
+            database.chmod(database.stat().st_mode | stat.S_IWUSR | stat.S_IXUSR)
             notes = assets / "RELEASE_NOTES.md"
             notes.write_text("Release test.\n", encoding="utf-8")
             manifest = assets / "manifest.json"
@@ -61,6 +65,18 @@ class PrepareReleaseTests(unittest.TestCase):
             prepared = prepare_release(manifest, root=root)
             self.assertEqual(prepared.tag_name, "v0.0.0-test")
             self.assertTrue(prepared.prerelease)
+            self.assertEqual(
+                database.stat().st_mode
+                & (
+                    stat.S_IWUSR
+                    | stat.S_IWGRP
+                    | stat.S_IWOTH
+                    | stat.S_IXUSR
+                    | stat.S_IXGRP
+                    | stat.S_IXOTH
+                ),
+                0,
+            )
             self.assertTrue(prepared.summary_path.is_file())
             self.assertIn("release-test", prepared.summary_path.read_text())
             checksum = prepared.checksums_path.read_text(encoding="ascii")
@@ -69,4 +85,3 @@ class PrepareReleaseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
