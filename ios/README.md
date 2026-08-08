@@ -45,4 +45,4 @@ python3 ios/build_catalog.py \
 
 ## Actions
 
-全量 IPSW 需要大磁盘和 `/dev/fuse`。仓库的多 catalog workflow 将 iOS job 放在带 `ios-extractor` 标签的 self-hosted Linux runner；普通 GitHub runner 只执行 fixture、语法和 schema 测试。
+全量 IPSW 需要大磁盘和 `/dev/fuse`。仓库的 `Build catalog set` workflow 会直接在 GitHub Actions 中构建；如果托管 runner 的磁盘/FUSE 限制不满足，可以将同一个 job 调度到带 `ios-extractor` 标签的 self-hosted Linux runner。

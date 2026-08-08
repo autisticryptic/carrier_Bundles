@@ -100,7 +100,7 @@ python3 ios/build_catalog.py \
 
 Pixel 在线构建必须先阅读 [Google Factory Images 条款](https://developers.google.com/android/images)，并在手动表单中确认接受。Factory ZIP、解包镜像和缓存只存在于临时 runner，不会进入 artifact；artifact 只包含最终 SQLite 和 `catalog-summary.json`。建议正式发布固定 `build_id`，不要使用 `latest`。
 
-iOS 全量提取需要下载大体积 AEA、解密 APFS 并使用 FUSE；`Build catalog set` 默认使用带 `ios-extractor` 标签的 self-hosted runner，避免在普通 runner 上因磁盘/FUSE 不足而产生半成品。常规 CI 仍只运行解析器和 fixture 测试。
+iOS 全量提取需要下载大体积 AEA、解密 APFS 并使用 FUSE；`Build catalog set` 会在 GitHub Actions runner 上自动安装依赖并执行完整构建。若 GitHub runner 的磁盘或 FUSE 限制导致 iOS job 失败，Pixel job 仍会独立完成，之后可只重跑 iOS job 或改用带 `ios-extractor` 标签的 self-hosted runner。常规 CI 仍只运行解析器和 fixture 测试。
 
 ## Release 发布
 
