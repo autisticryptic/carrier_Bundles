@@ -76,8 +76,6 @@ REQUIRED_PATHS = {
         "/access/vowifi/pcscf_discovery",
         "/access/vowifi/ike/eap_method",
         "/access/vowifi/ike/identities/idi",
-        "/access/vowifi/ike/ike_sa_proposals",
-        "/access/vowifi/ike/child_sa_proposals",
     ),
 }
 

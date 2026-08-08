@@ -86,6 +86,29 @@ class PixelCatalogTests(unittest.TestCase):
             config.key = key
             setattr(config, field, value)
 
+        for key, items in (
+            ("iwlan.supported_ike_session_encryption_algorithms_int_array", [12]),
+            ("iwlan.supported_child_session_encryption_algorithms_int_array", [12]),
+            ("iwlan.ike_session_encryption_aes_cbc_key_size_int_array", [128, 256]),
+            ("iwlan.child_session_aes_cbc_key_size_int_array", [128, 256]),
+            ("iwlan.supported_integrity_algorithms_int_array", [2, 12, 13]),
+            ("iwlan.supported_prf_algorithms_int_array", [2, 5]),
+            ("iwlan.diffie_hellman_groups_int_array", [2, 14]),
+        ):
+            config = setting.configs.config.add()
+            config.key = key
+            config.int_array.item.extend(items)
+
+        for key, value in (
+            ("iwlan.natt_keep_alive_timer_sec_int", 20),
+            ("iwlan.dpd_timer_sec_int", 120),
+            ("iwlan.ike_local_id_type_int", 3),
+            ("iwlan.ike_remote_id_type_int", 2),
+        ):
+            config = setting.configs.config.add()
+            config.key = key
+            config.int_value = value
+
     def test_import_maps_shared_others_file_without_raw_key_collisions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -173,7 +196,22 @@ class PixelCatalogTests(unittest.TestCase):
                         "username": "public-apn-user",
                     },
                 )
-                self.assertEqual(rows[0][1:4], ("ready", "ready", "partial"))
+                self.assertEqual(rows[0][1:4], ("ready", "ready", "ready"))
+                ike = config["access"]["vowifi"]["ike"]
+                self.assertEqual(ike["nat_keepalive_seconds"], 20)
+                self.assertEqual(ike["dpd_interval_seconds"], 120)
+                self.assertEqual(ike["local_id_type"], "id_rfc822_addr")
+                self.assertEqual(ike["remote_id_type"], "id_fqdn")
+                self.assertIn(
+                    {
+                        "encryption": "AES-128",
+                        "integrity": "SHA2-256",
+                        "prf": "SHA1-160",
+                        "dh_group": 2,
+                    },
+                    ike["ike_sa_proposals"],
+                )
+                self.assertTrue(ike["child_sa_proposals"])
                 match_columns = {
                     row[1]
                     for row in connection.execute("PRAGMA table_info(profile_match_rules)")

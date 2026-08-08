@@ -9,6 +9,7 @@ import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from itertools import product
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,37 @@ LICENSE_NOTE = (
     "published with the official factory image"
 )
 
+SAPROPOSAL_ENCRYPTION = {
+    3: "3DES",
+    12: "AES-CBC",
+    13: "AES-CTR",
+    18: "AES-GCM-8",
+    19: "AES-GCM-12",
+    20: "AES-GCM-16",
+}
+SAPROPOSAL_INTEGRITY = {
+    2: "SHA1-96",
+    5: "AES-XCBC-96",
+    12: "SHA2-256",
+    13: "SHA2-384",
+    14: "SHA2-512",
+}
+SAPROPOSAL_PRF = {
+    2: "SHA1-160",
+    4: "AES128-XCBC",
+    5: "SHA2-256",
+    6: "SHA2-384",
+    7: "SHA2-512",
+}
+IWLAN_ID_TYPE = {2: "id_fqdn", 3: "id_rfc822_addr", 11: "id_key_id"}
+IWLAN_EPDG_AUTH = {0: "eap_only", 1: "certificate"}
+IWLAN_EPDG_IP_TYPE = {
+    0: "ipv4_preferred",
+    1: "ipv6_preferred",
+    2: "ipv4_only",
+    3: "ipv6_only",
+}
+
 
 @dataclass
 class ImportStats:
@@ -50,6 +82,8 @@ class ImportStats:
     mcfg_files_inventoried: int = 0
     relevant_raw_values: int = 0
     field_evidence_imported: int = 0
+    profiles_with_iwlan_ike_proposals: int = 0
+    profiles_with_iwlan_child_proposals: int = 0
 
 
 def _slug(value: str) -> str:
@@ -185,6 +219,152 @@ def _apn_config(apn: Any) -> dict[str, Any]:
     )
 
 
+
+
+def _encryption_candidates(configs: dict[str, Any], *, child: bool) -> list[str]:
+    """Expand Android IWLAN encryption arrays into concrete proposal names."""
+
+    if child:
+        algorithm_key = "iwlan.supported_child_session_encryption_algorithms_int_array"
+        cbc_sizes = array_config(
+            configs, "iwlan.child_session_aes_cbc_key_size_int_array"
+        )
+        ctr_sizes = array_config(
+            configs, "iwlan.child_session_aes_ctr_key_size_int_array"
+        )
+        aead_key = "iwlan.supported_child_session_aead_algorithms_int_array"
+    else:
+        algorithm_key = "iwlan.supported_ike_session_encryption_algorithms_int_array"
+        cbc_sizes = array_config(
+            configs, "iwlan.ike_session_encryption_aes_cbc_key_size_int_array"
+        )
+        ctr_sizes = array_config(
+            configs, "iwlan.ike_session_encryption_aes_ctr_key_size_int_array"
+        )
+        aead_key = "iwlan.supported_ike_session_aead_algorithms_int_array"
+
+    result: list[str] = []
+    for algorithm in array_config(configs, algorithm_key) or []:
+        if algorithm == 12 and cbc_sizes:
+            result.extend(
+                f"AES-{size}" for size in cbc_sizes if size in {128, 192, 256}
+            )
+        elif algorithm == 13 and ctr_sizes:
+            result.extend(
+                f"AES-CTR-{size}" for size in ctr_sizes if size in {128, 192, 256}
+            )
+        elif algorithm in SAPROPOSAL_ENCRYPTION:
+            result.append(SAPROPOSAL_ENCRYPTION[algorithm])
+    for algorithm in array_config(configs, aead_key) or []:
+        if algorithm in SAPROPOSAL_ENCRYPTION:
+            result.append(SAPROPOSAL_ENCRYPTION[algorithm])
+    return result
+
+
+def _sa_proposals(configs: dict[str, Any], *, child: bool) -> list[dict[str, Any]]:
+    """Build concrete SA proposals from Android's supported-algorithm arrays."""
+
+    integrity = [
+        SAPROPOSAL_INTEGRITY[item]
+        for item in array_config(configs, "iwlan.supported_integrity_algorithms_int_array") or []
+        if item in SAPROPOSAL_INTEGRITY
+    ]
+    prf = [
+        SAPROPOSAL_PRF[item]
+        for item in array_config(configs, "iwlan.supported_prf_algorithms_int_array") or []
+        if item in SAPROPOSAL_PRF
+    ]
+    dh_groups = [
+        item
+        for item in array_config(configs, "iwlan.diffie_hellman_groups_int_array") or []
+        if isinstance(item, int) and item != 0
+    ]
+    encryption = _encryption_candidates(configs, child=child)
+    if not encryption or not integrity:
+        return []
+    result: list[dict[str, Any]] = []
+    for values in product(encryption, integrity, prf or [None], dh_groups or [None]):
+        result.append(
+            compact(
+                {
+                    "encryption": values[0],
+                    "integrity": values[1],
+                    "prf": values[2],
+                    "dh_group": values[3],
+                }
+            )
+        )
+        if len(result) >= 256:
+            break
+    return result
+
+
+def _iwlan_ike_policy(configs: dict[str, Any]) -> dict[str, Any]:
+    """Map Android IWLAN carrier policy onto the shared ike object."""
+
+    local_id = IWLAN_ID_TYPE.get(
+        int_config(configs, "iwlan.ike_local_id_type_int") or -1
+    )
+    remote_id = IWLAN_ID_TYPE.get(
+        int_config(configs, "iwlan.ike_remote_id_type_int") or -1
+    )
+    epdg_auth = IWLAN_EPDG_AUTH.get(
+        int_config(configs, "iwlan.epdg_authentication_method_int") or -1
+    )
+    ip_type = IWLAN_EPDG_IP_TYPE.get(
+        int_config(configs, "iwlan.epdg_address_ip_type_preference_int") or -1
+    )
+    return compact(
+        {
+            "nat_keepalive_seconds": int_config(
+                configs, "iwlan.natt_keep_alive_timer_sec_int"
+            ),
+            "dpd_interval_seconds": int_config(configs, "iwlan.dpd_timer_sec_int"),
+            "ike_rekey_soft_seconds": int_config(
+                configs, "iwlan.ike_rekey_soft_timer_sec_int"
+            ),
+            "ike_rekey_hard_seconds": int_config(
+                configs, "iwlan.ike_rekey_hard_timer_in_sec"
+            ),
+            "child_sa_rekey_soft_seconds": int_config(
+                configs, "iwlan.child_sa_rekey_soft_timer_sec_int"
+            ),
+            "child_sa_rekey_hard_seconds": int_config(
+                configs, "iwlan.child_sa_rekey_hard_timer_sec_int"
+            ),
+            "max_retries": int_config(configs, "iwlan.max_retries_int"),
+            "retransmit_timer_seconds": array_config(
+                configs, "iwlan.retransmit_timer_sec_int_array"
+            ),
+            "eap_aka_fast_reauth": bool_config(
+                configs, "iwlan.supports_eap_aka_fast_reauth_bool"
+            ),
+            "supports_multiple_ike_sa_proposals": bool_config(
+                configs, "iwlan.supports_ike_session_multiple_sa_proposals_bool"
+            ),
+            "supports_multiple_child_sa_proposals": bool_config(
+                configs, "iwlan.supports_child_session_multiple_sa_proposals_bool"
+            ),
+            "add_ke_to_child_session_rekey": bool_config(
+                configs, "iwlan.add_ke_to_child_session_rekey_bool"
+            ),
+            "local_id_type": local_id,
+            "remote_id_type": remote_id,
+            "epdg_authentication_method": epdg_auth,
+            "epdg_address_ip_type_preference": ip_type,
+            "epdg_pco_id_ipv4": int_config(configs, "iwlan.epdg_pco_id_ipv4_int"),
+            "epdg_pco_id_ipv6": int_config(configs, "iwlan.epdg_pco_id_ipv6_int"),
+            "epdg_address_priority": array_config(
+                configs, "iwlan.epdg_address_priority_int_array"
+            ),
+            "epdg_plmn_priority": array_config(
+                configs, "iwlan.epdg_plmn_priority_int_array"
+            ),
+            "mcc_mncs": array_config(configs, "iwlan.mcc_mncs_string_array"),
+        }
+    )
+
+
 def _access_config(
     record: CarrierSettingRecord,
     plmn: str,
@@ -274,6 +454,15 @@ def _access_config(
                     ],
                 },
             }
+            ike_proposals = _sa_proposals(configs, child=False)
+            child_proposals = _sa_proposals(configs, child=True)
+            if ike_proposals:
+                wifi["ike"]["ike_sa_proposals"] = ike_proposals
+                stats.profiles_with_iwlan_ike_proposals += 1
+            if child_proposals:
+                wifi["ike"]["child_sa_proposals"] = child_proposals
+                stats.profiles_with_iwlan_child_proposals += 1
+            wifi["ike"].update(_iwlan_ike_policy(configs))
         result["vowifi"] = compact(wifi)
         stats.access_configs_imported += 1
     return result

@@ -380,5 +380,36 @@ icon_scope = "worldwide"
                     )
 
 
+    def test_vowifi_without_explicit_proposals_is_still_ready(self) -> None:
+        config = {
+            "protocol_baseline": CONFIG_CONTRACT,
+            "ims": {
+                "home_domain": "ims.mnc260.mcc310.3gppnetwork.org",
+                "authentication": {"scheme": "ims_aka"},
+            },
+            "access": {
+                "vowifi": {
+                    "epdg": [
+                        {
+                            "address": "epdg.epc.mnc260.mcc310.pub.3gppnetwork.org",
+                            "discovery": "standard_derived",
+                        }
+                    ],
+                    "pcscf_discovery": ["ike_cfg"],
+                    "ike": {
+                        "eap_method": "eap_aka",
+                        "identities": {
+                            "idi": [{"value_template": "0{imsi}@{home_domain}"}]
+                        },
+                    },
+                }
+            },
+            "services": {"vowifi": True},
+        }
+        encoded, status = finalized_config(config)
+        self.assertEqual(status["vowifi"], "ready")
+        self.assertNotIn("vowifi_missing", json.loads(encoded)["readiness"])
+
+
 if __name__ == "__main__":
     unittest.main()
