@@ -81,19 +81,6 @@ jobs:
     env:
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
-      - name: Install disk expansion prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends lvm2 thin-provisioning-tools
-      - name: Reclaim runner disk space
-        uses: easimon/maximize-build-space@fc881a613ad2a34aca9c9624518214ebc21dfc0c # v10
-        with:
-          root-reserve-mb: 1024
-          temp-reserve-mb: 1024
-          swap-size-mb: 4096
-          remove-dotnet: true
-          remove-android: true
-          remove-haskell: true
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
