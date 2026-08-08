@@ -73,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        product_type: ["iPhone17,2", "iPhone16,2", "iPhone14,3"]
+        product_type: ["iPhone17,2"]
     # The complete build is intentionally performed by GitHub Actions. The
     # runner needs enough free disk for the IPSW/AEA/APFS temporary files.
     runs-on: ubuntu-24.04
@@ -96,17 +96,23 @@ jobs:
           df -h
       - name: Build and verify iOS catalog
         run: |
+          set -o pipefail
           output="$RUNNER_TEMP/carrier-bundles-${{ matrix.product_type }}.sqlite3"
-          python3 ios/build_catalog.py --product-type "${{ matrix.product_type }}" --version "${{ inputs.ios_version || 'latest' }}" --work-dir "$GITHUB_WORKSPACE/data/tmp/ios/${{ matrix.product_type }}" --output "$output"
+          mkdir -p "$GITHUB_WORKSPACE/data/tmp/ios/${{ matrix.product_type }}"
+          python3 -u ios/build_catalog.py --product-type "${{ matrix.product_type }}" --version "${{ inputs.ios_version || 'latest' }}" --work-dir "$GITHUB_WORKSPACE/data/tmp/ios/${{ matrix.product_type }}" --output "$output" 2>&1 | tee "$RUNNER_TEMP/${{ matrix.product_type }}-build.log"
           python3 tools/verify_catalog.py "$output" > "$RUNNER_TEMP/${{ matrix.product_type }}-summary.json"
           sha256sum "$output" > "$RUNNER_TEMP/SHA256SUMS-${{ matrix.product_type }}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
         with:
           name: catalog-${{ matrix.product_type }}
           path: |
             ${{ runner.temp }}/carrier-bundles-${{ matrix.product_type }}.sqlite3
             ${{ runner.temp }}/${{ matrix.product_type }}-summary.json
             ${{ runner.temp }}/SHA256SUMS-${{ matrix.product_type }}
+            ${{ runner.temp }}/${{ matrix.product_type }}-build.log
+            ${{ github.workspace }}/data/tmp/ios/${{ matrix.product_type }}/
+          if-no-files-found: ignore
           compression-level: 0
           retention-days: 14
 
