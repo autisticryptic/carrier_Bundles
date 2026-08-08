@@ -84,6 +84,7 @@ class ImportStats:
     field_evidence_imported: int = 0
     profiles_with_iwlan_ike_proposals: int = 0
     profiles_with_iwlan_child_proposals: int = 0
+    profiles_with_security_client: int = 0
 
 
 def _slug(value: str) -> str:
@@ -496,7 +497,49 @@ def _services(record: CarrierSettingRecord) -> dict[str, Any]:
     return compact(result)
 
 
-def _ims_and_sip(record: CarrierSettingRecord, plmn: str) -> tuple[dict[str, Any], dict[str, Any]]:
+IPSEC_AUTHENTICATION_ALGORITHM = {
+    0: "hmac-md5-96",
+    1: "hmac-sha-1-96",
+}
+IPSEC_ENCRYPTION_ALGORITHM = {
+    0: "null",
+    1: "3des-cbc",
+    2: "aes-cbc",
+}
+
+
+def _security_client(configs: dict[str, Any]) -> list[dict[str, Any]]:
+    """Map Android IMS IPsec algorithm arrays onto SIP Security-Client offers."""
+
+    authentication = array_config(
+        configs, "ims.ipsec_authentication_algorithms_int_array"
+    )
+    encryption = array_config(configs, "ims.ipsec_encryption_algorithms_int_array")
+    if not authentication and not encryption:
+        return []
+    result: list[dict[str, Any]] = []
+    for auth in authentication or []:
+        for ealg in encryption or []:
+            result.append(
+                compact(
+                    {
+                        "mechanism": "ipsec-3gpp",
+                        "integrity_algorithm": IPSEC_AUTHENTICATION_ALGORITHM.get(auth),
+                        "encryption_algorithm": IPSEC_ENCRYPTION_ALGORITHM.get(ealg),
+                        "protocol": "esp",
+                        "mode": "trans",
+                    }
+                )
+            )
+    return result
+
+
+def _ims_and_sip(
+    record: CarrierSettingRecord,
+    plmn: str,
+    *,
+    stats: ImportStats,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     configs = config_map(record.setting)
     ipsec = bool_config(configs, "ims.sip_over_ipsec_enabled_bool")
     transport_value = int_config(configs, "ims.sip_preferred_transport_int")
@@ -538,7 +581,12 @@ def _ims_and_sip(record: CarrierSettingRecord, plmn: str) -> tuple[dict[str, Any
             "user_agent_template": user_agent,
         }
     )
-    sip = {"common": {"register": register}} if register else {}
+    common: dict[str, Any] = {"register": register} if register else {}
+    security_client = _security_client(configs)
+    if security_client:
+        common["security_client"] = security_client
+        stats.profiles_with_security_client += 1
+    sip = {"common": common} if common else {}
     return ims, sip
 
 
@@ -738,7 +786,7 @@ def import_pixel_catalog(
                     continue
                 seen.add(match_key)
                 plmn = match["plmn"]
-                ims, sip = _ims_and_sip(record, plmn)
+                ims, sip = _ims_and_sip(record, plmn, stats=stats)
                 config: dict[str, Any] = {
                     "protocol_baseline": CONFIG_CONTRACT,
                     "ims": ims,

@@ -99,6 +99,14 @@ class PixelCatalogTests(unittest.TestCase):
             config.key = key
             config.int_array.item.extend(items)
 
+        for key, items in (
+            ("ims.ipsec_authentication_algorithms_int_array", [1]),
+            ("ims.ipsec_encryption_algorithms_int_array", [2]),
+        ):
+            config = setting.configs.config.add()
+            config.key = key
+            config.int_array.item.extend(items)
+
         for key, value in (
             ("iwlan.natt_keep_alive_timer_sec_int", 20),
             ("iwlan.dpd_timer_sec_int", 120),
@@ -212,6 +220,19 @@ class PixelCatalogTests(unittest.TestCase):
                     ike["ike_sa_proposals"],
                 )
                 self.assertTrue(ike["child_sa_proposals"])
+                self.assertEqual(
+                    config["sip"]["common"]["security_client"],
+                    [
+                        {
+                            "mechanism": "ipsec-3gpp",
+                            "integrity_algorithm": "hmac-sha-1-96",
+                            "encryption_algorithm": "aes-cbc",
+                            "protocol": "esp",
+                            "mode": "trans",
+                        }
+                    ],
+                )
+                self.assertEqual(stats.profiles_with_security_client, 2)
                 match_columns = {
                     row[1]
                     for row in connection.execute("PRAGMA table_info(profile_match_rules)")
