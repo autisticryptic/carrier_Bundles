@@ -20,6 +20,7 @@ IPCC_INDEX_URL = "https://itunes.com/version"
 USER_AGENT = "carrier-bundles-ipcc/0.1"
 APPLE_IPCC_HOSTS = {
     "updates.cdn-apple.com",
+    "updates-http.cdn-apple.com",
     "appldnld.apple.com",
     "appldnld.apple.com.edgesuite.net",
 }

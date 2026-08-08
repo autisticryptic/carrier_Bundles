@@ -327,4 +327,9 @@ def hash_bundle_tree(root: Path) -> str:
 
 
 def canonical_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        _json_value(value),
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )

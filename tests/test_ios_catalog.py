@@ -68,6 +68,7 @@ def _fixture(root: Path) -> Path:
                     "AllowedProtocolMaskInRoaming": 2,
                     "PcscfAddressRequired": True,
                     "Support5GSaHandOver": True,
+                    "signature": b"\x00\xfflegacy-plist-signature",
                 }
             ],
             "IMSConfig": {
