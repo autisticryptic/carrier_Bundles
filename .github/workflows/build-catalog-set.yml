@@ -30,6 +30,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: build-catalog-set-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pixel:
     runs-on: ubuntu-24.04
@@ -182,6 +186,39 @@ jobs:
           path: catalog-set
           compression-level: 0
           retention-days: 30
+      - name: Remove assets from the previous catalog set
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || 'v0.3.0-catalog-v7' }}
+        with:
+          script: |
+            let release;
+            try {
+              release = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: process.env.RELEASE_TAG,
+              });
+            } catch (error) {
+              if (error.status === 404) return;
+              throw error;
+            }
+            const assets = await github.paginate(
+              github.rest.repos.listReleaseAssets,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.data.id,
+                per_page: 100,
+              },
+            );
+            for (const asset of assets) {
+              await github.rest.repos.deleteReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                asset_id: asset.id,
+              });
+            }
       - name: Publish schema-v7 catalog Release
         uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2.4.1
         with:
@@ -191,4 +228,4 @@ jobs:
           body_path: catalog-set/BUILD_STATUS.md
           files: catalog-set/*
           fail_on_unmatched_files: true
-          overwrite_files: true
+          preserve_order: true
