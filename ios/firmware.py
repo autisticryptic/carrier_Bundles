@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import os
+import platform
 import shutil
 import stat
 import subprocess
@@ -19,13 +20,24 @@ from .sources import IPSWArtifact, inspect_build_manifest
 
 
 IPSW_VERSION = "3.1.707"
-IPSW_ARCHIVE_SHA256 = (
-    "002113c7b9eaf4d06d5bb77dcbeb809f9b942ff18ba9fe906f3a8d2aab12df00"
-)
-IPSW_ARCHIVE_URL = (
-    "https://github.com/blacktop/ipsw/releases/download/v3.1.707/"
-    "ipsw_3.1.707_linux_x86_64.tar.gz"
-)
+IPSW_ARCHIVES = {
+    ("Linux", "x86_64"): (
+        "ipsw_3.1.707_linux_x86_64.tar.gz",
+        "002113c7b9eaf4d06d5bb77dcbeb809f9b942ff18ba9fe906f3a8d2aab12df00",
+    ),
+    ("Linux", "aarch64"): (
+        "ipsw_3.1.707_linux_arm64.tar.gz",
+        "d32d9d838ddcdadab370c949e26f503abcbab39018be3ff3ab2f6d4719e26ec7",
+    ),
+    ("Darwin", "arm64"): (
+        "ipsw_3.1.707_macOS_arm64.tar.gz",
+        "73955adaa55fe4e198bac90dc5aa710a51aafea5345baedb41d896f84833d931",
+    ),
+    ("Darwin", "x86_64"): (
+        "ipsw_3.1.707_macOS_x86_64.tar.gz",
+        "64b5ff9ff2b1d073c701c7070a54ae7f3e7d43cb9b2d7e7a7a559d5c995475f2",
+    ),
+}
 APFS_FUSE_REPOSITORY = "https://github.com/sgan81/apfs-fuse.git"
 APFS_FUSE_COMMIT = "66b86bd525e8cb90f9012543be89b1f092b75cf3"
 
@@ -62,14 +74,22 @@ def ensure_ipsw_tool(tool_root: Path) -> Path:
         if f"Version: {IPSW_VERSION}" in version:
             return executable
 
-    archive = install_dir / "ipsw.tar.gz"
-    if not archive.is_file() or sha256_file(archive) != IPSW_ARCHIVE_SHA256:
-        _download(IPSW_ARCHIVE_URL, archive)
+    target = (platform.system(), platform.machine())
+    if target not in IPSW_ARCHIVES:
+        raise RuntimeError(f"unsupported blacktop/ipsw host: {target[0]} {target[1]}")
+    archive_name, expected_sha256 = IPSW_ARCHIVES[target]
+    archive_url = (
+        f"https://github.com/blacktop/ipsw/releases/download/v{IPSW_VERSION}/"
+        f"{archive_name}"
+    )
+    archive = install_dir / archive_name
+    if not archive.is_file() or sha256_file(archive) != expected_sha256:
+        _download(archive_url, archive)
     actual = sha256_file(archive)
-    if actual != IPSW_ARCHIVE_SHA256:
+    if actual != expected_sha256:
         raise ValueError(
             f"blacktop/ipsw archive SHA-256 mismatch: expected "
-            f"{IPSW_ARCHIVE_SHA256}, got {actual}"
+            f"{expected_sha256}, got {actual}"
         )
     install_dir.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive, "r:gz") as package:
@@ -80,6 +100,12 @@ def ensure_ipsw_tool(tool_root: Path) -> Path:
 
 def ensure_apfs_fuse(tool_root: Path) -> Path:
     """Build the pinned read-only APFS FUSE implementation when needed."""
+
+    if platform.system() == "Darwin":
+        hdiutil = shutil.which("hdiutil")
+        if not hdiutil:
+            raise RuntimeError("macOS hdiutil is required to mount APFS images")
+        return Path(hdiutil)
 
     checkout = tool_root / "apfs-fuse"
     executable = checkout / "build" / "apfs-fuse"
@@ -193,6 +219,25 @@ def mounted_apfs(apfs_fuse: Path, image: Path, mountpoint: Path) -> Iterator[Pat
     """Mount an APFS image through FUSE and always unmount it afterwards."""
 
     mountpoint.mkdir(parents=True, exist_ok=True)
+    if platform.system() == "Darwin":
+        subprocess.run(
+            [
+                str(apfs_fuse),
+                "attach",
+                "-readonly",
+                "-nobrowse",
+                "-mountpoint",
+                str(mountpoint),
+                str(image),
+            ],
+            check=True,
+        )
+        try:
+            yield mountpoint
+        finally:
+            subprocess.run([str(apfs_fuse), "detach", str(mountpoint)], check=True)
+        return
+
     subprocess.run([str(apfs_fuse), str(image), str(mountpoint)], check=True)
     for _ in range(100):
         if os.path.ismount(mountpoint):
