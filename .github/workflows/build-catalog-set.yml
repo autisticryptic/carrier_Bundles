@@ -76,7 +76,7 @@ jobs:
         product_type: ["iPhone17,2"]
     # The complete build is intentionally performed by GitHub Actions. The
     # runner needs enough free disk for the IPSW/AEA/APFS temporary files.
-    runs-on: ubuntu-24.04
+    runs-on: macos-14
     timeout-minutes: 360
     env:
       PYTHONDONTWRITEBYTECODE: "1"
@@ -87,12 +87,7 @@ jobs:
           python-version: "3.13"
       - name: Install iOS extraction tools
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            git golang-go cargo rustc cmake g++ pkg-config \
-            fuse3 libfuse3-dev libfuse-dev libbz2-dev liblzma-dev \
-            libicu-dev libattr1-dev zlib1g-dev libssl-dev p7zip-full
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          brew install go rust cmake p7zip || true
           df -h
       - name: Build and verify iOS catalog
         run: |
@@ -101,7 +96,7 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/data/tmp/ios/${{ matrix.product_type }}"
           python3 -u ios/build_catalog.py --product-type "${{ matrix.product_type }}" --version "${{ inputs.ios_version || 'latest' }}" --work-dir "$GITHUB_WORKSPACE/data/tmp/ios/${{ matrix.product_type }}" --output "$output" 2>&1 | tee "$RUNNER_TEMP/${{ matrix.product_type }}-build.log"
           python3 tools/verify_catalog.py "$output" > "$RUNNER_TEMP/${{ matrix.product_type }}-summary.json"
-          sha256sum "$output" > "$RUNNER_TEMP/SHA256SUMS-${{ matrix.product_type }}"
+          shasum -a 256 "$output" > "$RUNNER_TEMP/SHA256SUMS-${{ matrix.product_type }}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: ${{ always() }}
         with:
