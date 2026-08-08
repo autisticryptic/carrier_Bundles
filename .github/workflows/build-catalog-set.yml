@@ -37,6 +37,10 @@ jobs:
     env:
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
+      - name: Install disk expansion prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends lvm2 thin-provisioning-tools
       - name: Require Factory Images acknowledgement
         if: ${{ github.event_name != 'push' && inputs.accept_google_terms != true }}
         run: |
@@ -88,6 +92,10 @@ jobs:
     env:
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
+      - name: Install disk expansion prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends lvm2 thin-provisioning-tools
       - name: Reclaim runner disk space
         uses: easimon/maximize-build-space@fc881a613ad2a34aca9c9624518214ebc21dfc0c # v10
         with:
