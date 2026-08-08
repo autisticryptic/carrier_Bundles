@@ -110,9 +110,45 @@ jobs:
           compression-level: 0
           retention-days: 14
 
+  ipcc:
+    name: iOS Apple IPCC
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Build and verify Apple IPCC catalog
+        run: |
+          set -o pipefail
+          output="$RUNNER_TEMP/carrier-bundles-ios-ipcc.sqlite3"
+          python3 -u ios/build_ipcc_catalog.py \
+            --workers 12 \
+            --work-dir "$GITHUB_WORKSPACE/data/tmp/ipcc-catalog" \
+            --output "$output" 2>&1 | tee "$RUNNER_TEMP/ipcc-build.log"
+          python3 tools/verify_catalog.py "$output" > "$RUNNER_TEMP/ipcc-summary.json"
+          cp "$GITHUB_WORKSPACE/data/tmp/ipcc-catalog/manifest.json" "$RUNNER_TEMP/ipcc-manifest.json"
+          sha256sum "$output" > "$RUNNER_TEMP/SHA256SUMS-ipcc"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
+        with:
+          name: catalog-ios-ipcc
+          path: |
+            ${{ runner.temp }}/carrier-bundles-ios-ipcc.sqlite3
+            ${{ runner.temp }}/ipcc-summary.json
+            ${{ runner.temp }}/ipcc-manifest.json
+            ${{ runner.temp }}/SHA256SUMS-ipcc
+            ${{ runner.temp }}/ipcc-build.log
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 14
+
   aggregate:
-    needs: [pixel, ios]
-    if: ${{ always() && needs.pixel.result == 'success' && needs.ios.result == 'success' }}
+    needs: [pixel, ios, ipcc]
+    if: ${{ always() && (needs.pixel.result == 'success' || needs.ios.result == 'success' || needs.ipcc.result == 'success') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -121,9 +157,25 @@ jobs:
           path: catalog-set
           merge-multiple: true
       - name: Make aggregate checksums and summary
+        env:
+          PIXEL_RESULT: ${{ needs.pixel.result }}
+          IOS_IPSW_RESULT: ${{ needs.ios.result }}
+          IOS_IPCC_RESULT: ${{ needs.ipcc.result }}
         run: |
           find catalog-set -type f -name '*.sqlite3' -print0 | sort -z | xargs -0 sha256sum > catalog-set/SHA256SUMS
-          printf '# Catalog set\n\nBuilt by run %s. Each SQLite is an independent schema-v7 catalog.\n' "$GITHUB_RUN_ID" > catalog-set/README.md
+          {
+            echo '# Catalog set'
+            echo
+            echo "Built by run $GITHUB_RUN_ID. Each SQLite is an independent schema-v7 catalog."
+            echo
+            echo '| Source | Result |'
+            echo '|---|---|'
+            echo "| Pixel 10 Pro XL ROM | $PIXEL_RESULT |"
+            echo "| iPhone 16 Pro Max IPSW | $IOS_IPSW_RESULT |"
+            echo "| Apple online IPCC index | $IOS_IPCC_RESULT |"
+            echo
+            echo 'A failed source is not merged into another database; successful catalogs remain publishable.'
+          } > catalog-set/BUILD_STATUS.md
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: carrier-bundles-catalog-set-${{ github.run_id }}
@@ -166,7 +218,7 @@ jobs:
           tag_name: ${{ inputs.release_tag || 'v0.3.0-catalog-v7' }}
           name: Carrier Bundles v0.3.0 schema v7
           target_commitish: ${{ github.sha }}
-          body: Independent schema-v7 Pixel 10 Pro XL and iPhone 16 Pro Max catalogs. See SHA256SUMS.
+          body_path: catalog-set/BUILD_STATUS.md
           files: catalog-set/*
           fail_on_unmatched_files: true
           overwrite_files: true

@@ -55,6 +55,13 @@ class IOSImportStats:
     field_evidence_imported: int = 0
 
 
+@dataclass(frozen=True)
+class IOSBundleSource:
+    source_uri: str
+    artifact_sha256: str | None
+    source_revision: str | None
+
+
 def _slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-") or "unknown"
 
@@ -1044,6 +1051,7 @@ def import_ios_catalog(
     baseband_path: Path | None = None,
     include_standard_derived: bool = True,
     include_device_overrides: bool = False,
+    bundle_sources: dict[str, IOSBundleSource] | None = None,
 ) -> IOSImportStats:
     """Import one bundle tree without storing device, OS or build identifiers."""
 
@@ -1068,13 +1076,30 @@ def import_ios_catalog(
         if release is None or release[0] != 0:
             raise RuntimeError("iOS importer requires an unsealed v7 catalog")
 
-        carrier_source_id = _source_artifact(
-            connection,
-            source_kind="carrier_bundle",
-            source_uri=APPLE_UPDATE_SOURCE,
-            artifact_sha256=hash_bundle_tree(carrier_root),
-            source_revision=None,
-        )
+        default_source_id = None
+        source_ids: dict[str, int] = {}
+        if bundle_sources is None:
+            default_source_id = _source_artifact(
+                connection,
+                source_kind="carrier_bundle",
+                source_uri=APPLE_UPDATE_SOURCE,
+                artifact_sha256=hash_bundle_tree(carrier_root),
+                source_revision=None,
+            )
+        else:
+            artifact_source_ids: dict[IOSBundleSource, int] = {}
+            for bundle_name, source in sorted(bundle_sources.items()):
+                source_id = artifact_source_ids.get(source)
+                if source_id is None:
+                    source_id = _source_artifact(
+                        connection,
+                        source_kind="carrier_bundle",
+                        source_uri=source.source_uri,
+                        artifact_sha256=source.artifact_sha256,
+                        source_revision=source.source_revision,
+                    )
+                    artifact_source_ids[source] = source_id
+                source_ids[bundle_name] = source_id
         standard_source_id = None
         if include_standard_derived:
             standard_source_id = _source_artifact(
@@ -1089,6 +1114,17 @@ def import_ios_catalog(
             )
 
         for variant in variants:
+            carrier_source_id = source_ids.get(variant.bundle_path.name)
+            if carrier_source_id is None:
+                if default_source_id is None:
+                    default_source_id = _source_artifact(
+                        connection,
+                        source_kind="carrier_bundle",
+                        source_uri=APPLE_UPDATE_SOURCE,
+                        artifact_sha256=hash_bundle_tree(variant.bundle_path),
+                        source_revision="IPCC bundle without manifest mapping",
+                    )
+                carrier_source_id = default_source_id
             carrier_id = _slug(variant.bundle_name)
             country = _country_from_bundle(variant.bundle_path.name)
             brand = variant.config.get("CarrierName")

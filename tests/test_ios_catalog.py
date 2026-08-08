@@ -12,7 +12,7 @@ from ios.bundles import (
     load_carrier_bundle_variants,
     parse_supported_sim,
 )
-from ios.catalog import import_ios_catalog
+from ios.catalog import IOSBundleSource, import_ios_catalog
 from ios.sources import IPHONE_16_PRO_26_6, resolve_ipsw_artifact
 
 
@@ -257,6 +257,13 @@ class IOSCatalogTests(unittest.TestCase):
                 root / "export",
                 artifact=IPHONE_16_PRO_26_6,
                 device_class="D93",
+                bundle_sources={
+                    "Example_NR_US.bundle": IOSBundleSource(
+                        source_uri="https://updates.cdn-apple.com/example.ipcc",
+                        artifact_sha256="2" * 64,
+                        source_revision="bundle=Example_NR_US;version=70.1",
+                    )
+                },
             )
             with closing(sqlite3.connect(database)) as connection:
                 rows = connection.execute(
@@ -286,6 +293,9 @@ class IOSCatalogTests(unittest.TestCase):
                 ).fetchall()
                 schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
                 integrity = connection.execute("PRAGMA quick_check").fetchone()[0]
+                source_uri = connection.execute(
+                    "SELECT source_uri FROM source_artifacts WHERE source_kind='carrier_bundle'"
+                ).fetchone()[0]
 
         self.assertEqual(stats.profiles_imported, 2)
         self.assertEqual(profiles, 2)
@@ -326,6 +336,7 @@ class IOSCatalogTests(unittest.TestCase):
         self.assertEqual(rows[-1][2:5], ("ready", "ready", "ready"))
         self.assertEqual(schema_version, 7)
         self.assertEqual(integrity, "ok")
+        self.assertEqual(source_uri, "https://updates.cdn-apple.com/example.ipcc")
 
 
 if __name__ == "__main__":

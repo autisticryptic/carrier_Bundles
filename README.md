@@ -81,6 +81,18 @@ iOS 提取器默认通过 ipsw.me 发现最新的 iPhone 16 Pro Max (`iPhone17,2
 python3 ios/build_catalog.py --product-type iPhone17,2 --version latest
 ```
 
+也可以直接查询 Apple 的 IPCC 更新索引并选择性下载 Carrier Bundle，不需要解包完整 IPSW：
+
+```bash
+python3 ios/download_ipcc.py --product iphone --bundle Maxis --download --extract
+```
+
+Apple 在线 IPCC 还可以单独生成第三份 schema-v7 数据库：
+
+```bash
+python3 ios/build_ipcc_catalog.py --workers 12
+```
+
 下载和 APFS 提取已完成后，可以直接复用导出的 bundle 目录，不再下载约 8 GiB 的 RootFS 成员：
 
 ```bash
@@ -96,7 +108,7 @@ python3 ios/build_catalog.py \
 仓库包含两条线上流程：
 
 - `CI`：每次 push/PR 自动在 Python 3.11 和 3.13 上执行语法检查及全部单元测试。
-- `Build catalog set`：从 GitHub Actions 一次构建 Pixel 和多个 iPhone Pro Max catalog；每份 SQLite 保持独立，并同时上传 summary 与 `SHA256SUMS`。
+- `Build catalog set`：分别构建 Pixel ROM、iPhone Pro Max IPSW 和 Apple 在线 IPCC catalog；每份 SQLite 保持独立，并同时上传 summary、manifest 与 `SHA256SUMS`。某个来源失败不会阻止其他成功数据库发布。
 
 Pixel 在线构建必须先阅读 [Google Factory Images 条款](https://developers.google.com/android/images)，并在手动表单中确认接受。Factory ZIP、解包镜像和缓存只存在于临时 runner，不会进入 artifact；artifact 只包含最终 SQLite 和 `catalog-summary.json`。建议正式发布固定 `build_id`，不要使用 `latest`。
 

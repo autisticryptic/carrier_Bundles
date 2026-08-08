@@ -6,6 +6,7 @@
 
 - [blacktop/ipsw](https://github.com/blacktop/ipsw) 用于远程 ZIP 枚举、AEA 解密和文件提取。
 - ipsw.me 只用于发现 Product Type 对应的 Apple CDN URL；数据库证据仍来自 Apple IPSW/Carrier Bundle。
+- Apple 的 `https://itunes.com/version` 索引提供独立 IPCC 更新；本项目参考 [mrlnc/ipcc-downloader](https://github.com/mrlnc/ipcc-downloader) 的公开协议说明，使用 `ios/download_ipcc.py` 自行解析 Apple plist 并从 Apple CDN 获取 `.ipcc`。参考仓库已归档且未声明许可证，因此未复制其代码。
 - Apple 没有公开的完整 IMS/VoWiFi 配置 API。`.bbfw` 目前只作为固件制品，不猜测其中未确认的 IMS 字段。
 
 首个验证样本是 iPhone 16 Pro (`iPhone17,1`) iOS 26.6 `23G71`。默认线上目标改为 iPhone 16 Pro Max (`iPhone17,2`) 的最新 signed IPSW；还可以独立构建 iPhone 15 Pro Max (`iPhone16,2`) 等代际。
@@ -32,6 +33,55 @@ python3 ios/build_catalog.py \
 
 不带 `--product-type` 的离线命令沿用上述 iPhone 16 Pro 固定元数据。其他离线制品应显式给出 `--product-type`、`--version` 和必要时的 `--device-class`。
 
+## IPCC 获取
+
+只查询 Apple 索引，不下载：
+
+```bash
+python3 ios/download_ipcc.py --product iphone --bundle Maxis
+```
+
+下载、校验 Apple Digest、额外计算 SHA-256，并安全解压到现有解析器可识别的目录：
+
+```bash
+python3 ios/download_ipcc.py \
+  --product iphone \
+  --bundle Maxis \
+  --download \
+  --extract
+```
+
+默认只选择每个 bundle 的最新条目。`--all-versions` 保留历史版本；重复使用 `--bundle` 可以选择多个运营商或 MCCMNC 关键词。为避免误下载数千个文件，不带 `--bundle` 下载时必须显式加 `--download-all`。
+
+默认输出：
+
+- IPCC：`data/raw/ipcc/`；
+- 规范化 bundle：`data/tmp/ipcc/bundles/System/Library/Carrier Bundles/iPhone/`；
+- 来源、Apple Digest、SHA-256 和原始索引路径：`data/tmp/ipcc/manifest.json`。
+
+IPCC 是 IPSW 之外的独立 Apple 发布来源，可能比某个固定 IPSW 新，也可能只覆盖少数运营商。不能假设 `itunes.com` 中存在全部系统 Carrier Bundle，更不能用 IPCC 字段补齐另一份 IPSW catalog；后续导入时应从单组 IPCC 制品独立生成数据库并保留来源证据。
+
+### 构建独立 IPCC catalog
+
+以下命令下载 Apple 索引中每个 iPhone bundle 的最新 IPCC，并生成一份不与 IPSW catalog 混合的只读 SQLite：
+
+```bash
+python3 ios/build_ipcc_catalog.py \
+  --workers 12 \
+  --output data/carrier-bundles-ios-ipcc.sqlite3
+```
+
+调试单个运营商时可重复使用 `--bundle`：
+
+```bash
+python3 ios/build_ipcc_catalog.py \
+  --bundle Maxis \
+  --skip-icon-sync \
+  --output data/carrier-bundles-ios-ipcc-maxis.sqlite3
+```
+
+每个 profile 的来源证据会指向具体 Apple IPCC URL、IPCC SHA-256、Apple Digest 和 bundle 版本。个别历史 IPCC 下载失败时默认记录到 manifest 并继续构建其他成功 bundle；`--strict-downloads` 可改为任何失败都终止构建。
+
 ## v7 映射
 
 | iOS 信息 | v7 位置 |
@@ -45,4 +95,4 @@ python3 ios/build_catalog.py \
 
 ## Actions
 
-全量 IPSW 需要大磁盘和 `/dev/fuse`。仓库的 `Build catalog set` workflow 会直接在 GitHub Actions 中构建；如果托管 runner 的磁盘/FUSE 限制不满足，可以将同一个 job 调度到带 `ios-extractor` 标签的 self-hosted Linux runner。
+全量 IPSW 需要大磁盘。仓库的 `Build catalog set` workflow 使用 macOS runner 和原生 `hdiutil` 处理 APFS；Linux 本地构建仍使用只读 APFS FUSE。IPCC catalog 使用独立 Ubuntu job，不需要 APFS/FUSE。Pixel、IPSW 和 IPCC 任一 job 失败时，其他成功数据库仍会进入 artifact/Release，且 `BUILD_STATUS.md` 会记录各来源结果。
