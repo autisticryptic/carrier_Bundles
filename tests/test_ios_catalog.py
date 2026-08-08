@@ -13,7 +13,7 @@ from ios.bundles import (
     parse_supported_sim,
 )
 from ios.catalog import IOSBundleSource, import_ios_catalog
-from ios.sources import IPHONE_16_PRO_26_6, resolve_ipsw_artifact
+from ios.sources import IPHONE_16_PRO_26_6, catalog_filename, resolve_ipsw_artifact
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -214,6 +214,10 @@ class IOSBundleTests(unittest.TestCase):
             artifact = resolve_ipsw_artifact("iPhone17,2")
         self.assertEqual(artifact.build_id, "23G71")
         self.assertEqual(artifact.url, "https://updates.cdn-apple.com/new.ipsw")
+        self.assertEqual(
+            catalog_filename(artifact),
+            "carrier-bundles-iphone16promax-26.6.sqlite3",
+        )
 
     def test_parses_public_match_prefixes(self) -> None:
         match = parse_supported_sim("310260_GID1-54_GID2-01_ID-890126")

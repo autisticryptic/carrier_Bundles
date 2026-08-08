@@ -66,6 +66,14 @@ PRODUCT_NAMES = {
 IPSW_API_URL = "https://api.ipsw.me/v4/device/{product_type}?type=ipsw"
 
 
+def catalog_filename(artifact: IPSWArtifact) -> str:
+    """Return the stable release filename for one device and iOS version."""
+
+    device = re.sub(r"[^a-z0-9]+", "", artifact.device_name.casefold())
+    version = re.sub(r"[^a-z0-9.]+", "-", artifact.os_version.casefold()).strip("-.")
+    return f"carrier-bundles-{device or 'iphone'}-{version or 'unknown'}.sqlite3"
+
+
 def resolve_ipsw_artifact(
     product_type: str = "iPhone17,2",
     version: str = "latest",

@@ -96,3 +96,5 @@ python3 ios/build_ipcc_catalog.py \
 ## Actions
 
 全量 IPSW 需要大磁盘。仓库的 `Build catalog set` workflow 使用 macOS runner 和原生 `hdiutil` 处理 APFS；Linux 本地构建仍使用只读 APFS FUSE。IPCC catalog 使用独立 Ubuntu job，不需要 APFS/FUSE。Pixel、IPSW 和 IPCC 任一 job 失败时，其他成功数据库仍会进入 artifact/Release，且 `BUILD_STATUS.md` 会记录各来源结果。
+
+IPSW 数据库按实际手机型号和 iOS 版本命名，例如 `carrier-bundles-iphone16promax-26.6.sqlite3`；请求 `latest` 时也会先固定解析到的 signed build，不在文件名中保留 `latest`。

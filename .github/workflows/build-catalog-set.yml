@@ -96,9 +96,20 @@ jobs:
       - name: Build and verify iOS catalog
         run: |
           set -o pipefail
-          output="$RUNNER_TEMP/carrier-bundles-${{ matrix.product_type }}.sqlite3"
+          source_metadata="$RUNNER_TEMP/${{ matrix.product_type }}-source.txt"
+          python3 - "${{ matrix.product_type }}" "${{ inputs.ios_version || 'latest' }}" > "$source_metadata" <<'PY'
+          import sys
+          from ios.sources import catalog_filename, resolve_ipsw_artifact
+
+          artifact = resolve_ipsw_artifact(sys.argv[1], sys.argv[2])
+          print(artifact.build_id)
+          print(catalog_filename(artifact))
+          PY
+          resolved_build=$(sed -n '1p' "$source_metadata")
+          output_name=$(sed -n '2p' "$source_metadata")
+          output="$RUNNER_TEMP/$output_name"
           mkdir -p "$GITHUB_WORKSPACE/data/tmp/ios/${{ matrix.product_type }}"
-          python3 -u ios/build_catalog.py --product-type "${{ matrix.product_type }}" --version "${{ inputs.ios_version || 'latest' }}" --work-dir "$GITHUB_WORKSPACE/data/tmp/ios/${{ matrix.product_type }}" --output "$output" 2>&1 | tee "$RUNNER_TEMP/${{ matrix.product_type }}-build.log"
+          python3 -u ios/build_catalog.py --product-type "${{ matrix.product_type }}" --version "$resolved_build" --work-dir "$GITHUB_WORKSPACE/data/tmp/ios/${{ matrix.product_type }}" --output "$output" 2>&1 | tee "$RUNNER_TEMP/${{ matrix.product_type }}-build.log"
           python3 tools/verify_catalog.py "$output" > "$RUNNER_TEMP/${{ matrix.product_type }}-summary.json"
           shasum -a 256 "$output" > "$RUNNER_TEMP/SHA256SUMS-${{ matrix.product_type }}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -106,7 +117,7 @@ jobs:
         with:
           name: catalog-${{ matrix.product_type }}
           path: |
-            ${{ runner.temp }}/carrier-bundles-${{ matrix.product_type }}.sqlite3
+            ${{ runner.temp }}/carrier-bundles-iphone*.sqlite3
             ${{ runner.temp }}/${{ matrix.product_type }}-summary.json
             ${{ runner.temp }}/SHA256SUMS-${{ matrix.product_type }}
             ${{ runner.temp }}/${{ matrix.product_type }}-build.log

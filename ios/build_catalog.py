@@ -30,6 +30,7 @@ from ios.firmware import (  # noqa: E402
 from ios.sources import (  # noqa: E402
     IPHONE_16_PRO_26_6,
     PRODUCT_DEVICE_CLASSES,
+    catalog_filename,
     inspect_build_manifest,
     resolve_ipsw_artifact,
 )
@@ -151,12 +152,7 @@ def main() -> None:
         ROOT / "data" / "tmp" / "ios" / f"{_slug(artifact.product_type)}-{_slug(artifact.build_id)}"
     )
     output = args.output or (
-        ROOT
-        / "data"
-        / (
-            f"carrier-bundles-{_slug(artifact.device_name)}-"
-            f"{_slug(artifact.product_type)}-{_slug(artifact.build_id)}.sqlite3"
-        )
+        ROOT / "data" / catalog_filename(artifact)
     )
     output = output.resolve()
     building = output.with_name(f"{output.name}.building")
