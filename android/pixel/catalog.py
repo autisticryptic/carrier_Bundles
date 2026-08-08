@@ -1,4 +1,4 @@
-"""Import decoded Pixel CarrierSettings and Qualcomm MCFG inventory into SQLite."""
+"""Compile decoded Pixel CarrierSettings into a schema-v7 catalog."""
 
 from __future__ import annotations
 
@@ -12,18 +12,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from catalog_contract import CONFIG_CONTRACT, compact, finalized_config
+
 from . import PARSER_NAME, PARSER_VERSION
 from .carrier_settings import (
     CarrierSettingRecord,
-    apn_as_dict,
     array_config,
     bool_config,
     config_map,
-    config_value,
     has_ims_data,
     ims_apns,
     int_config,
-    is_relevant_key,
     load_carrier_settings,
     normalized_apn,
     public_imsi_prefix,
@@ -31,13 +30,13 @@ from .carrier_settings import (
     text_config,
     translate_android_user_agent,
 )
-from .firmware import ExtractedPixelFirmware, sha256_file
+from .firmware import ExtractedPixelFirmware
 
 
 STANDARDS_URI = "https://www.3gpp.org/ftp/Specs/archive/23_series/23.003/"
 LICENSE_NOTE = (
-    "Google Pixel device software; extraction and use remain subject to the "
-    "terms published with the factory image"
+    "Google device software; extraction and use remain subject to the terms "
+    "published with the official factory image"
 )
 
 
@@ -50,6 +49,7 @@ class ImportStats:
     ambiguous_access_configs: int = 0
     mcfg_files_inventoried: int = 0
     relevant_raw_values: int = 0
+    field_evidence_imported: int = 0
 
 
 def _slug(value: str) -> str:
@@ -66,141 +66,73 @@ def _display_name(name: str) -> str:
     return re.sub(r"[_=]+", " ", name).strip().title()
 
 
-def _json_type(value: Any) -> str:
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "boolean"
-    if isinstance(value, int):
-        return "integer"
-    if isinstance(value, float):
-        return "real"
-    if isinstance(value, str):
-        return "text"
-    if isinstance(value, list):
-        return "array"
-    return "object"
-
-
-def _source_snapshot(
+def _source_artifact(
     connection: sqlite3.Connection,
     *,
     source_kind: str,
-    platform: str = "android",
-    vendor: str | None = "Google",
-    device_family: str | None = "Pixel",
-    device: str | None,
-    os_version: str | None,
-    build_id: str | None,
-    baseband_version: str | None,
-    source_revision: str | None,
     source_uri: str,
     artifact_sha256: str | None,
+    source_revision: str | None,
+    parser_name: str = PARSER_NAME,
+    parser_version: str = PARSER_VERSION,
     license_note: str = LICENSE_NOTE,
 ) -> int:
     cursor = connection.execute(
-        """INSERT INTO source_snapshots(
-               source_kind, platform, vendor, device_family, device_model,
-               os_version, build_id, baseband_version, source_revision,
-               source_uri, artifact_sha256, extracted_at, parser_name,
-               parser_version, license_note
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        """INSERT INTO source_artifacts(
+               source_kind, source_uri, artifact_sha256, source_revision,
+               extracted_at, parser_name, parser_version, license_note
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             source_kind,
-            platform,
-            vendor,
-            device_family,
-            device,
-            os_version,
-            build_id,
-            baseband_version,
-            source_revision,
             source_uri,
             artifact_sha256,
+            source_revision,
             datetime.now(timezone.utc).isoformat(),
-            PARSER_NAME,
-            PARSER_VERSION,
+            parser_name,
+            parser_version,
             license_note,
         ),
     )
     return int(cursor.lastrowid)
 
 
-def _record_key_path(record: CarrierSettingRecord, suffix: str) -> str:
-    canonical_name = json.dumps(record.canonical_name, ensure_ascii=True)
-    return f"settings[{canonical_name}].{suffix}"
-
-
 def _evidence(
     connection: sqlite3.Connection,
     *,
+    stats: ImportStats,
     profile_id: str,
     source_id: int,
-    table_name: str,
-    row_key: str | None,
-    field_name: str,
+    target_kind: str,
+    target_path: str,
     source_path: str,
-    key_path: str,
-    kind: str = "extracted",
+    source_key_path: str,
+    value: Any,
+    evidence_kind: str = "extracted",
     confidence: int = 95,
 ) -> None:
     connection.execute(
         """INSERT INTO field_evidence(
-               profile_id, source_id, table_name, row_key, field_name,
-               source_path, key_path, evidence_kind, confidence
+               profile_id, source_id, target_kind, target_path, source_path,
+               source_key_path, source_value_json, evidence_kind, confidence
            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             profile_id,
             source_id,
-            table_name,
-            row_key,
-            field_name,
+            target_kind,
+            target_path,
             source_path,
-            key_path,
-            kind,
+            source_key_path,
+            json.dumps(value, ensure_ascii=True, sort_keys=True),
+            evidence_kind,
             confidence,
         ),
     )
+    stats.field_evidence_imported += 1
 
 
-def _insert_raw_source_values(
-    connection: sqlite3.Connection,
-    source_id: int,
-    record: CarrierSettingRecord,
-) -> int:
-    count = 0
-    for index, apn in enumerate(ims_apns(record.setting)):
-        value = apn_as_dict(apn)
-        connection.execute(
-            """INSERT INTO raw_config_values(
-                   source_id, source_path, key_path, value_json, value_type
-               ) VALUES (?, ?, ?, ?, 'object')""",
-            (
-                source_id,
-                record.source_path,
-                _record_key_path(record, f"apns.ims[{index}]"),
-                json.dumps(value, ensure_ascii=True, sort_keys=True),
-            ),
-        )
-        count += 1
-    for index, config in enumerate(record.setting.configs.config):
-        if not is_relevant_key(config.key):
-            continue
-        value = config_value(config)
-        connection.execute(
-            """INSERT INTO raw_config_values(
-                   source_id, source_path, key_path, value_json, value_type
-               ) VALUES (?, ?, ?, ?, ?)""",
-            (
-                source_id,
-                record.source_path,
-                _record_key_path(record, f"configs[{index}].{config.key}"),
-                json.dumps(value, ensure_ascii=True, sort_keys=True),
-                _json_type(value),
-            ),
-        )
-        count += 1
-    return count
+def _record_key_path(record: CarrierSettingRecord, suffix: str) -> str:
+    canonical_name = json.dumps(record.canonical_name, ensure_ascii=True)
+    return f"settings[{canonical_name}].{suffix}"
 
 
 def _profile_suffix(carrier_id: Any) -> str:
@@ -213,362 +145,328 @@ def _profile_suffix(carrier_id: Any) -> str:
     return f"{readable}-{digest}"
 
 
-def _insert_match(
-    connection: sqlite3.Connection,
-    profile_id: str,
-    carrier_id: Any,
-    device: str,
-) -> str | None:
+def _domain(plmn: str) -> str:
+    return f"ims.mnc{int(plmn[3:]):03d}.mcc{plmn[:3]}.3gppnetwork.org"
+
+
+def _epdg(plmn: str) -> str:
+    return f"epdg.epc.mnc{int(plmn[3:]):03d}.mcc{plmn[:3]}.pub.3gppnetwork.org"
+
+
+def _match_values(carrier_id: Any) -> dict[str, Any] | None:
     plmn = carrier_id.mcc_mnc
     if not re.fullmatch(r"[0-9]{5,6}", plmn) or plmn.startswith("000"):
         return None
-    mcc, mnc = plmn[:3], plmn[3:]
-    connection.execute(
-        """INSERT OR IGNORE INTO plmns(plmn, mcc, mnc, mnc_length)
-           VALUES (?, ?, ?, ?)""",
-        (plmn, mcc, mnc, len(mnc)),
-    )
+    result: dict[str, Any] = {"plmn": plmn}
     mvno_kind = carrier_id.WhichOneof("mvno_data")
-    values = {"spn": None, "gid1": None, "imsi_prefix": None}
     if mvno_kind == "spn":
-        values["spn"] = carrier_id.spn
+        result["spn"] = carrier_id.spn
     elif mvno_kind == "gid1":
-        values["gid1"] = carrier_id.gid1
+        result["gid1"] = carrier_id.gid1
     elif mvno_kind == "imsi":
-        values["imsi_prefix"] = public_imsi_prefix(carrier_id.imsi)
-    connection.execute(
-        """INSERT INTO profile_match_rules(
-               profile_id, plmn, imsi_prefix, gid1, spn, device_model_pattern
-           ) VALUES (?, ?, ?, ?, ?, ?)""",
-        (
-            profile_id,
-            plmn,
-            values["imsi_prefix"],
-            values["gid1"],
-            values["spn"],
-            device,
-        ),
-    )
-    return plmn
+        prefix = public_imsi_prefix(carrier_id.imsi)
+        if prefix:
+            result["imsi_prefix"] = prefix[:14]
+    return result
 
 
-def _insert_access_configs(
-    connection: sqlite3.Connection,
-    *,
-    record: CarrierSettingRecord,
-    profile_id: str,
-    source_id: int,
-    stats: ImportStats,
-) -> dict[str, int]:
-    configs = config_map(record.setting)
-    wfc_available = bool_config(configs, "carrier_wfc_ims_available_bool")
-    vonr_available = bool_config(configs, "carrier_vonr_available_bool")
-    access_ids: dict[str, int] = {}
-    for access_kind in ("lte_epc", "nr_5gc", "wifi_epdg"):
-        apn, ambiguous = select_access_apn(record.setting, access_kind)
-        if ambiguous:
-            stats.ambiguous_access_configs += 1
-        epdg = text_config(configs, "iwlan.epdg_static_address_string")
-        needs_wifi_row = access_kind == "wifi_epdg" and (wfc_available is not None or epdg)
-        if apn is None and not needs_wifi_row:
-            continue
-        values = normalized_apn(apn) if apn is not None else {
-            "apn_dnn": None,
-            "apn_auth_type": None,
-            "apn_username": None,
-            "apn_password": None,
-            "ip_family": None,
-            "roaming_ip_family": None,
-            "mtu": None,
+def _apn_config(apn: Any) -> dict[str, Any]:
+    values = normalized_apn(apn)
+    return compact(
+        {
+            "apn": values["apn_dnn"],
+            "auth_type": values["apn_auth_type"],
+            "username": values["apn_username"],
+            "password": values["apn_password"],
+            "ip_family": values["ip_family"],
+            "roaming_ip_family": values["roaming_ip_family"],
+            "mtu": values["mtu"],
         }
-        enabled = wfc_available if access_kind == "wifi_epdg" else (
-            vonr_available if access_kind == "nr_5gc" else None
-        )
-        cursor = connection.execute(
-            """INSERT INTO access_configs(
-                   profile_id, access_kind, purpose, enabled, apn_dnn,
-                   apn_auth_type, apn_username, apn_password, ip_family,
-                   roaming_ip_family, mtu
-               ) VALUES (?, ?, 'ims', ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                profile_id,
-                access_kind,
-                enabled,
-                values["apn_dnn"],
-                values["apn_auth_type"],
-                values["apn_username"],
-                values["apn_password"],
-                values["ip_family"],
-                values["roaming_ip_family"],
-                values["mtu"],
-            ),
-        )
-        access_id = int(cursor.lastrowid)
-        access_ids[access_kind] = access_id
-        stats.access_configs_imported += 1
-        if apn is not None:
-            for field, value in values.items():
-                if value is not None:
-                    _evidence(
-                        connection,
-                        profile_id=profile_id,
-                        source_id=source_id,
-                        table_name="access_configs",
-                        row_key=f"{profile_id}:{access_kind}:ims",
-                        field_name=field,
-                        source_path=record.source_path,
-                        key_path=_record_key_path(record, "apns[type=IMS]"),
-                    )
-
-    wifi_access = access_ids.get("wifi_epdg")
-    epdg = text_config(configs, "iwlan.epdg_static_address_string")
-    if wifi_access and epdg:
-        connection.execute(
-            """INSERT INTO network_endpoints(
-                   profile_id, access_id, service, address_kind, address,
-                   transport, discovery_method, roaming_scope
-               ) VALUES (?, ?, 'epdg', 'fqdn', ?, 'ikev2', 'static', 'home')""",
-            (profile_id, wifi_access, epdg.rstrip(".")),
-        )
-        _evidence(
-            connection,
-            profile_id=profile_id,
-            source_id=source_id,
-            table_name="network_endpoints",
-            row_key=f"{profile_id}:epdg:home:0",
-            field_name="address",
-            source_path=record.source_path,
-            key_path=_record_key_path(
-                record, "configs.iwlan.epdg_static_address_string"
-            ),
-        )
-    roaming_epdg = text_config(configs, "iwlan.epdg_static_address_roaming_string")
-    if wifi_access and roaming_epdg:
-        connection.execute(
-            """INSERT INTO network_endpoints(
-                   profile_id, access_id, service, position, address_kind,
-                   address, transport, discovery_method, roaming_scope
-               ) VALUES (?, ?, 'epdg', 1, 'fqdn', ?, 'ikev2', 'static', 'visited')""",
-            (profile_id, wifi_access, roaming_epdg.rstrip(".")),
-        )
-
-    xcap = text_config(configs, "imsss.ut_as_server_fqdn_string")
-    if xcap:
-        connection.execute(
-            """INSERT INTO network_endpoints(
-                   profile_id, service, address_kind, address, port,
-                   discovery_method
-               ) VALUES (?, 'xcap', 'fqdn', ?, ?, 'static')""",
-            (profile_id, xcap.rstrip("."), int_config(configs, "imsss.ut_as_server_port_int")),
-        )
-    entitlement = text_config(configs, "imsserviceentitlement.entitlement_server_url_string")
-    if entitlement:
-        endpoint = connection.execute(
-            """INSERT INTO network_endpoints(
-                   profile_id, service, address_kind, address, transport,
-                   discovery_method
-               ) VALUES (?, 'entitlement', 'uri', ?, 'https', 'static')""",
-            (profile_id, entitlement),
-        ).lastrowid
-        connection.execute(
-            """INSERT INTO entitlement_configs(
-                   profile_id, service, protocol, endpoint_id, required
-               ) VALUES (?, 'vowifi', 'gsma_ts43', ?, ?)""",
-            (
-                profile_id,
-                endpoint,
-                bool_config(configs, "require_entitlement_checks_bool"),
-            ),
-        )
-    return access_ids
+    )
 
 
-def _insert_capabilities(
-    connection: sqlite3.Connection,
-    *,
+def _access_config(
     record: CarrierSettingRecord,
-    profile_id: str,
-) -> None:
+    plmn: str,
+    *,
+    include_standard_derived: bool,
+    stats: ImportStats,
+) -> dict[str, Any]:
     configs = config_map(record.setting)
-    capabilities: dict[str, bool | None] = {
+    result: dict[str, Any] = {}
+    for source_kind, target_kind in (("lte_epc", "lte"), ("nr_5gc", "nr")):
+        apn, ambiguous = select_access_apn(record.setting, source_kind)
+        stats.ambiguous_access_configs += int(ambiguous)
+        if apn is None:
+            continue
+        item = _apn_config(apn)
+        if target_kind == "nr":
+            item["dnn"] = item.pop("apn", None)
+            if include_standard_derived:
+                item["pcscf_discovery"] = ["epco", "pco"]
+        elif include_standard_derived:
+            item["pcscf_discovery"] = ["pco", "epco"]
+        result[target_kind] = compact(item)
+        stats.access_configs_imported += 1
+
+    wfc = bool_config(configs, "carrier_wfc_ims_available_bool")
+    static_epdg = text_config(configs, "iwlan.epdg_static_address_string")
+    roaming_epdg = text_config(configs, "iwlan.epdg_static_address_roaming_string")
+    wifi_apn, ambiguous = select_access_apn(record.setting, "wifi_epdg")
+    stats.ambiguous_access_configs += int(ambiguous)
+    if wfc is not None or static_epdg or wifi_apn is not None:
+        wifi: dict[str, Any] = {"enabled": wfc}
+        if wifi_apn is not None:
+            wifi.update(_apn_config(wifi_apn))
+        endpoints: list[dict[str, Any]] = []
+        if static_epdg:
+            endpoints.append(
+                {
+                    "address": static_epdg.rstrip("."),
+                    "discovery": "static",
+                    "roaming_scope": "home",
+                }
+            )
+        elif wfc is True and include_standard_derived:
+            endpoints.append(
+                {
+                    "address": _epdg(plmn),
+                    "discovery": "standard_derived",
+                    "roaming_scope": "home",
+                }
+            )
+        if roaming_epdg:
+            endpoints.append(
+                {
+                    "address": roaming_epdg.rstrip("."),
+                    "discovery": "static",
+                    "roaming_scope": "visited",
+                }
+            )
+        if endpoints:
+            wifi["epdg"] = endpoints
+        if include_standard_derived:
+            wifi["pcscf_discovery"] = ["ike_cfg"]
+            wifi["ike"] = {
+                "initial_port": 500,
+                "natt_port": 4500,
+                "eap_method": "eap_aka",
+                "request_internal_address": True,
+                "request_pcscf": True,
+                "nat_traversal": True,
+                "identities": {
+                    "idi": [
+                        {
+                            "identity_type": "id_rfc822_addr",
+                            "source": "derived_imsi",
+                            "value_template": (
+                                "0{imsi}@nai.epc.mnc{mnc3}.mcc{mcc}."
+                                "3gppnetwork.org"
+                            ),
+                        }
+                    ],
+                    "idr": [
+                        {
+                            "identity_type": "id_fqdn",
+                            "source": "epdg_fqdn",
+                            "value_template": "{epdg_fqdn}",
+                        }
+                    ],
+                },
+            }
+        result["vowifi"] = compact(wifi)
+        stats.access_configs_imported += 1
+    return result
+
+
+def _services(record: CarrierSettingRecord) -> dict[str, Any]:
+    configs = config_map(record.setting)
+    result: dict[str, Any] = {
         "ims": True if ims_apns(record.setting) else None,
         "volte": bool_config(configs, "carrier_volte_available_bool"),
         "vonr": bool_config(configs, "carrier_vonr_available_bool"),
         "vowifi": bool_config(configs, "carrier_wfc_ims_available_bool"),
         "ut_xcap": bool_config(configs, "carrier_supports_ss_over_ut_bool"),
-        "video": bool_config(configs, "carrier_vt_available_bool"),
+        "vilte": bool_config(configs, "carrier_vt_available_bool"),
     }
     sms_rats = array_config(configs, "imssms.sms_over_ims_supported_rats_int_array")
-    emergency_rats = array_config(configs, "imsemergency.emergency_over_ims_supported_rats_int_array")
+    emergency_rats = array_config(
+        configs, "imsemergency.emergency_over_ims_supported_rats_int_array"
+    )
     if sms_rats is not None:
-        capabilities["smsoip"] = bool(sms_rats)
+        result["smsoip"] = bool(sms_rats)
     if emergency_rats is not None:
-        capabilities["emergency"] = bool(emergency_rats)
-    if capabilities["volte"] is True or capabilities["vowifi"] is True:
-        capabilities["mmtel"] = True
-
-    for service, supported in capabilities.items():
-        if supported is None:
-            continue
-        provisioning = (
-            bool_config(configs, "carrier_volte_provisioning_required_bool")
-            if service == "volte"
-            else None
-        )
-        connection.execute(
-            """INSERT INTO service_capabilities(
-                   profile_id, service, supported, provisioning_required
-               ) VALUES (?, ?, ?, ?)""",
-            (profile_id, service, supported, provisioning),
-        )
-    if emergency_rats is not None:
-        connection.execute(
-            "INSERT INTO emergency_configs(profile_id, supported) VALUES (?, ?)",
-            (profile_id, bool(emergency_rats)),
-        )
+        result["emergency"] = bool(emergency_rats)
+    if result.get("volte") is True or result.get("vowifi") is True:
+        result["mmtel"] = True
+    provisioning = bool_config(
+        configs, "carrier_volte_provisioning_required_bool"
+    )
+    if provisioning is not None:
+        result["volte_provisioning_required"] = provisioning
+    return compact(result)
 
 
-def _insert_standard_ims(
-    connection: sqlite3.Connection,
-    *,
-    record: CarrierSettingRecord,
-    profile_id: str,
-    plmn: str,
-    extracted_source_id: int,
-    standard_source_id: int,
-) -> None:
-    mcc, mnc = plmn[:3], plmn[3:]
-    home_domain = f"ims.mnc{int(mnc):03d}.mcc{mcc}.3gppnetwork.org"
+def _ims_and_sip(record: CarrierSettingRecord, plmn: str) -> tuple[dict[str, Any], dict[str, Any]]:
     configs = config_map(record.setting)
-    ipsec_value = bool_config(configs, "ims.sip_over_ipsec_enabled_bool")
-    ipsec = "auto" if ipsec_value is None else ("required" if ipsec_value else "disabled")
+    ipsec = bool_config(configs, "ims.sip_over_ipsec_enabled_bool")
     transport_value = int_config(configs, "ims.sip_preferred_transport_int")
-    transport = {0: "udp", 1: "tcp", 2: "auto", 3: "tls"}.get(
-        transport_value, "auto"
-    )
-    connection.execute(
-        """INSERT INTO ims_configs(
-               profile_id, home_domain, realm, private_identity_source,
-               public_identity_source, transport_preference,
-               ipsec_security_agreement
-           ) VALUES (?, ?, ?, 'auto', 'auto', ?, ?)""",
-        (profile_id, home_domain, home_domain, transport, ipsec),
-    )
-    for field in ("home_domain", "realm"):
-        _evidence(
-            connection,
-            profile_id=profile_id,
-            source_id=standard_source_id,
-            table_name="ims_configs",
-            row_key=profile_id,
-            field_name=field,
-            source_path="3GPP TS 23.003",
-            key_path="IMS home network domain derivation",
-            kind="standard_derived",
-            confidence=60,
-        )
-    if ipsec_value is not None:
-        _evidence(
-            connection,
-            profile_id=profile_id,
-            source_id=extracted_source_id,
-            table_name="ims_configs",
-            row_key=profile_id,
-            field_name="ipsec_security_agreement",
-            source_path=record.source_path,
-            key_path=_record_key_path(
-                record, "configs.ims.sip_over_ipsec_enabled_bool"
+    transport = {0: "udp", 1: "tcp", 2: "auto", 3: "tls"}.get(transport_value)
+    ims = compact(
+        {
+            "home_domain": _domain(plmn),
+            "realm": _domain(plmn),
+            "authentication": {"scheme": "ims_aka"},
+            "transport": transport,
+            "security_agreement": (
+                "required" if ipsec is True else "disabled" if ipsec is False else None
             ),
-        )
-    if transport != "auto":
-        _evidence(
-            connection,
-            profile_id=profile_id,
-            source_id=extracted_source_id,
-            table_name="ims_configs",
-            row_key=profile_id,
-            field_name="transport_preference",
-            source_path=record.source_path,
-            key_path=_record_key_path(
-                record, "configs.ims.sip_preferred_transport_int"
-            ),
-            confidence=85,
-        )
-
-    templates = (
-        ("impi", "nai", "{imsi}@{home_domain}"),
-        ("impu", "sip_uri", "sip:{imsi}@{home_domain}"),
+            "identity_templates": [
+                {
+                    "role": "impi",
+                    "source": "derived_imsi",
+                    "identity_type": "nai",
+                    "value_template": "{imsi}@{home_domain}",
+                    "use_when": "if_isim_missing",
+                },
+                {
+                    "role": "impu",
+                    "source": "derived_imsi",
+                    "identity_type": "sip_uri",
+                    "value_template": "sip:{imsi}@{home_domain}",
+                    "use_when": "if_isim_missing",
+                },
+            ],
+        }
     )
-    for position, (role, identity_type, template) in enumerate(templates):
-        connection.execute(
-            """INSERT INTO ims_identity_templates(
-                   profile_id, role, position, source_policy, identity_type,
-                   value_template, use_when
-               ) VALUES (?, ?, ?, 'derived_imsi', ?, ?, 'if_isim_missing')""",
-            (profile_id, role, position, identity_type, template),
-        )
-
     expires = int_config(configs, "ims.registration_expiry_timer_sec_int")
     user_agent = translate_android_user_agent(
         text_config(configs, "ims.ims_user_agent_string")
     )
-    if expires and expires <= 0:
-        expires = None
-    if expires or user_agent:
-        connection.execute(
-            """INSERT INTO sip_register_configs(
-                   profile_id, scope, requested_expires_seconds,
-                   user_agent_template
-               ) VALUES (?, 'common', ?, ?)""",
-            (profile_id, expires, user_agent),
-        )
+    register = compact(
+        {
+            "requested_expires_seconds": expires if expires and expires > 0 else None,
+            "user_agent_template": user_agent,
+        }
+    )
+    sip = {"common": {"register": register}} if register else {}
+    return ims, sip
 
 
-def _inventory_mcfg(
+def _media(record: CarrierSettingRecord) -> dict[str, Any]:
+    configs = config_map(record.setting)
+    media: dict[str, Any] = {}
+    audio: dict[str, Any] = {}
+    for key, name in (
+        ("imsvoice.amr_codec_attribute_mode_set_int_array", "AMR-NB"),
+        ("imsvoice.amr_wb_codec_attribute_mode_set_int_array", "AMR-WB"),
+        ("imsvoice.evs_codec_attribute_bandwidth_int_array", "EVS"),
+    ):
+        modes = array_config(configs, key)
+        if modes is not None:
+            audio.setdefault("codecs", []).append({"name": name, "modes": modes})
+    if audio:
+        media["audio"] = audio
+    return media
+
+
+def _entitlement(record: CarrierSettingRecord) -> dict[str, Any]:
+    configs = config_map(record.setting)
+    endpoint = text_config(
+        configs, "imsserviceentitlement.entitlement_server_url_string"
+    )
+    if not endpoint:
+        return {}
+    return compact(
+        {
+            "protocol": "gsma_ts43",
+            "endpoint": endpoint,
+            "required": bool_config(configs, "require_entitlement_checks_bool"),
+        }
+    )
+
+
+def _insert_match_and_evidence(
     connection: sqlite3.Connection,
     *,
-    mcfg_dir: Path | None,
-    device: str,
-    device_name: str | None,
-    os_version: str,
-    build_id: str,
-    baseband_version: str | None,
-    source_uri: str,
-) -> int:
-    if mcfg_dir is None:
-        return 0
-    count = 0
-    for path in sorted(mcfg_dir.rglob("mcfg_sw.mbn")):
-        relative = path.relative_to(mcfg_dir).as_posix()
-        digest = sha256_file(path)
-        source_id = _source_snapshot(
+    stats: ImportStats,
+    profile_id: str,
+    source_id: int,
+    record: CarrierSettingRecord,
+    values: dict[str, Any],
+) -> None:
+    cursor = connection.execute(
+        """INSERT INTO profile_match_rules(
+               profile_id, plmn, imsi_prefix, gid1, spn
+           ) VALUES (?, ?, ?, ?, ?)""",
+        (
+            profile_id,
+            values.get("plmn"),
+            values.get("imsi_prefix"),
+            values.get("gid1"),
+            values.get("spn"),
+        ),
+    )
+    rule_id = int(cursor.lastrowid)
+    for key, value in values.items():
+        _evidence(
             connection,
-            source_kind="qualcomm_mcfg",
-            platform="modem",
-            vendor="Qualcomm",
-            device_family=device_name or "Pixel",
-            device=device,
-            os_version=os_version,
-            build_id=build_id,
-            baseband_version=baseband_version,
-            source_revision=relative,
-            source_uri=source_uri,
-            artifact_sha256=digest,
+            stats=stats,
+            profile_id=profile_id,
+            source_id=source_id,
+            target_kind="match_rule",
+            target_path=f"/{rule_id}/{key}",
+            source_path=record.source_path,
+            source_key_path=_record_key_path(record, f"carrier_id.{key}"),
+            value=value,
         )
-        manifest = {
-            "relative_path": relative,
-            "size": path.stat().st_size,
-            "sha256": digest,
-            "parser_status": "inventoried_not_semantically_decoded",
-        }
-        connection.execute(
-            """INSERT INTO raw_config_values(
-                   source_id, source_path, key_path, value_json, value_type
-               ) VALUES (?, ?, 'artifact', ?, 'object')""",
-            (source_id, relative, json.dumps(manifest, sort_keys=True)),
-        )
-        count += 1
-    return count
+
+
+def _config_evidence(
+    connection: sqlite3.Connection,
+    *,
+    stats: ImportStats,
+    profile_id: str,
+    settings_source_id: int,
+    standard_source_id: int | None,
+    record: CarrierSettingRecord,
+    config: dict[str, Any],
+) -> None:
+    # Keep evidence compact but sufficient to audit every normalized section.
+    for section in ("access", "sip", "media", "services", "entitlement", "emergency"):
+        value = config.get(section)
+        if value:
+            _evidence(
+                connection,
+                stats=stats,
+                profile_id=profile_id,
+                source_id=settings_source_id,
+                target_kind="config",
+                target_path=f"/{section}",
+                source_path=record.source_path,
+                source_key_path=_record_key_path(record, section),
+                value=value,
+                confidence=85,
+            )
+    if standard_source_id is not None:
+        for pointer, value in (
+            ("/ims/home_domain", config["ims"]["home_domain"]),
+            ("/ims/realm", config["ims"]["realm"]),
+            ("/ims/identity_templates", config["ims"]["identity_templates"]),
+        ):
+            _evidence(
+                connection,
+                stats=stats,
+                profile_id=profile_id,
+                source_id=standard_source_id,
+                target_kind="config",
+                target_path=pointer,
+                source_path="3GPP TS 23.003",
+                source_key_path="standard derivation",
+                value=value,
+                evidence_kind="standard_derived",
+                confidence=60,
+            )
 
 
 def import_pixel_catalog(
@@ -583,67 +481,47 @@ def import_pixel_catalog(
     factory_sha256: str,
     include_standard_derived: bool = True,
 ) -> ImportStats:
+    """Import one official firmware without storing device or OS identifiers."""
+
+    del device, device_name, os_version, build_id
     stats = ImportStats()
     carrier_list_version, records = load_carrier_settings(firmware.carrier_settings_dir)
     stats.carrier_settings_seen = len(records)
+    if firmware.mcfg_dir is not None:
+        stats.mcfg_files_inventoried = sum(1 for _ in firmware.mcfg_dir.rglob("mcfg_sw.mbn"))
 
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("PRAGMA foreign_keys = ON")
         release = connection.execute(
-            "SELECT sealed FROM catalog_release WHERE singleton = 1"
+            "SELECT sealed FROM catalog_metadata WHERE singleton = 1"
         ).fetchone()
         if release is None or release[0] != 0:
-            raise RuntimeError("Pixel importer requires an unsealed catalog database")
+            raise RuntimeError("Pixel importer requires an unsealed v7 catalog")
 
-        _source_snapshot(
+        settings_source_id = _source_artifact(
             connection,
-            source_kind="firmware_metadata",
-            device_family=device_name or "Pixel",
-            device=device,
-            os_version=os_version,
-            build_id=build_id,
-            baseband_version=firmware.baseband_version,
-            source_revision=None,
+            source_kind="carrier_settings",
             source_uri=source_uri,
             artifact_sha256=factory_sha256,
-        )
-        settings_source_id = _source_snapshot(
-            connection,
-            source_kind="android_carrier_config",
-            device_family=device_name or "Pixel",
-            device=device,
-            os_version=os_version,
-            build_id=build_id,
-            baseband_version=firmware.baseband_version,
             source_revision=str(carrier_list_version),
-            source_uri=source_uri,
-            artifact_sha256=factory_sha256,
         )
-        standard_source_id: int | None = None
+        standard_source_id = None
         if include_standard_derived:
-            standard_source_id = _source_snapshot(
+            standard_source_id = _source_artifact(
                 connection,
                 source_kind="standards_reference",
-                platform="shared",
-                vendor="3GPP",
-                device_family=None,
-                device=None,
-                os_version=None,
-                build_id=None,
-                baseband_version=None,
-                source_revision="3GPP TS 23.003",
                 source_uri=STANDARDS_URI,
                 artifact_sha256=None,
-                license_note="3GPP specification reference; no subscriber data",
+                source_revision="3GPP TS 23.003/24.229/33.203",
+                parser_name="3gpp-standard-deriver",
+                parser_version="1",
+                license_note="3GPP specification references; no subscriber data",
             )
 
         for record in records:
             if not has_ims_data(record) or not record.carrier_ids:
                 continue
             stats.carrier_settings_imported += 1
-            stats.relevant_raw_values += _insert_raw_source_values(
-                connection, settings_source_id, record
-            )
             carrier_slug = _slug(record.canonical_name)
             is_mvno = any(item.WhichOneof("mvno_data") for item in record.carrier_ids)
             connection.execute(
@@ -657,41 +535,60 @@ def import_pixel_catalog(
                     _display_name(record.canonical_name),
                     "mvno" if is_mvno else "mno",
                     _country_from_canonical(record.canonical_name),
-                    "Name and scope are taken from Google Pixel CarrierSettings.",
+                    "Name and scope are extracted from an official CarrierSettings file.",
                 ),
             )
 
-            seen_matches: set[tuple[str, str | None, str | None]] = set()
-            for match in record.carrier_ids:
-                mvno_kind = match.WhichOneof("mvno_data")
-                mvno_value = getattr(match, mvno_kind) if mvno_kind else None
-                match_key = (match.mcc_mnc, mvno_kind, mvno_value)
-                if match_key in seen_matches:
+            seen: set[tuple[tuple[str, Any], ...]] = set()
+            for carrier_id in record.carrier_ids:
+                match = _match_values(carrier_id)
+                if match is None:
                     continue
-                seen_matches.add(match_key)
-                if not re.fullmatch(r"[0-9]{5,6}", match.mcc_mnc) or match.mcc_mnc.startswith("000"):
+                match_key = tuple(sorted(match.items()))
+                if match_key in seen:
                     continue
-                profile_id = f"pixel-{_slug(device)}-{carrier_slug}-{_profile_suffix(match)}"
-                display = f"{_display_name(record.canonical_name)} {match.mcc_mnc}"
+                seen.add(match_key)
+                plmn = match["plmn"]
+                ims, sip = _ims_and_sip(record, plmn)
+                config: dict[str, Any] = {
+                    "protocol_baseline": CONFIG_CONTRACT,
+                    "ims": ims,
+                    "access": _access_config(
+                        record,
+                        plmn,
+                        include_standard_derived=include_standard_derived,
+                        stats=stats,
+                    ),
+                    "sip": sip,
+                    "media": _media(record),
+                    "services": _services(record),
+                    "entitlement": _entitlement(record),
+                }
+                raw_config, statuses = finalized_config(config)
+                profile_id = f"profile-{carrier_slug}-{_profile_suffix(carrier_id)}"
                 connection.execute(
                     """INSERT INTO carrier_profiles(
                            profile_id, carrier_id, display_name, profile_kind,
-                           priority, confidence, notes
-                       ) VALUES (?, ?, ?, ?, 100, 85, ?)""",
+                           priority, confidence, lte_ims_status, nr_ims_status,
+                           vowifi_status, config_json, notes
+                       ) VALUES (?, ?, ?, ?, 100, 85, ?, ?, ?, ?, ?)""",
                     (
                         profile_id,
                         carrier_slug,
-                        display,
-                        "mvno" if mvno_kind else "device_specific",
-                        f"{device_name or 'Pixel'} ({device}) CarrierSettings "
-                        f"{record.setting.version}",
+                        f"{_display_name(record.canonical_name)} {plmn}",
+                        "mvno" if carrier_id.WhichOneof("mvno_data") else "default",
+                        statuses["lte"],
+                        statuses["nr"],
+                        statuses["vowifi"],
+                        raw_config,
+                        f"CarrierSettings profile version {record.setting.version}",
                     ),
                 )
                 connection.execute(
                     """INSERT INTO profile_sources(
                            profile_id, source_id, source_profile_key,
-                           source_path, source_priority
-                       ) VALUES (?, ?, ?, ?, 80)""",
+                           source_path, contribution_kind, precedence
+                       ) VALUES (?, ?, ?, ?, 'carrier_policy', 200)""",
                     (
                         profile_id,
                         settings_source_id,
@@ -699,42 +596,36 @@ def import_pixel_catalog(
                         record.source_path,
                     ),
                 )
-                plmn = _insert_match(connection, profile_id, match, device)
-                if plmn is None:
-                    continue
-                _insert_access_configs(
+                if standard_source_id is not None:
+                    connection.execute(
+                        """INSERT INTO profile_sources(
+                               profile_id, source_id, source_profile_key,
+                               source_path, contribution_kind, precedence
+                           ) VALUES (?, ?, '3GPP IMS baseline', ?,
+                                     'standard_default', 0)""",
+                        (profile_id, standard_source_id, STANDARDS_URI),
+                    )
+                _insert_match_and_evidence(
                     connection,
-                    record=record,
+                    stats=stats,
                     profile_id=profile_id,
                     source_id=settings_source_id,
-                    stats=stats,
+                    record=record,
+                    values=match,
                 )
-                _insert_capabilities(connection, record=record, profile_id=profile_id)
-                if include_standard_derived and standard_source_id is not None:
-                    _insert_standard_ims(
-                        connection,
-                        record=record,
-                        profile_id=profile_id,
-                        plmn=plmn,
-                        extracted_source_id=settings_source_id,
-                        standard_source_id=standard_source_id,
-                    )
+                _config_evidence(
+                    connection,
+                    stats=stats,
+                    profile_id=profile_id,
+                    settings_source_id=settings_source_id,
+                    standard_source_id=standard_source_id,
+                    record=record,
+                    config=json.loads(raw_config),
+                )
                 stats.profiles_imported += 1
 
-        stats.mcfg_files_inventoried = _inventory_mcfg(
-            connection,
-            mcfg_dir=firmware.mcfg_dir,
-            device=device,
-            device_name=device_name,
-            os_version=os_version,
-            build_id=build_id,
-            baseband_version=firmware.baseband_version,
-            source_uri=source_uri,
-        )
-        connection.commit()
-        foreign_key_error = connection.execute("PRAGMA foreign_key_check").fetchone()
-        if foreign_key_error is not None:
-            raise RuntimeError(f"foreign key check failed: {foreign_key_error}")
+        if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+            raise RuntimeError("foreign key check failed after Pixel import")
         if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
             raise RuntimeError("SQLite quick_check failed after Pixel import")
     return stats

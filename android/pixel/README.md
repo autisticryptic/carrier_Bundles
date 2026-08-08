@@ -10,8 +10,9 @@
 
 ```bash
 python3 android/pixel/build_catalog.py \
-  --device redfin \
-  --build-id UP1A.231105.001.B2 \
+  --device mustang \
+  --device-name "Pixel 10 Pro XL" \
+  --build-id CP2A.260805.005 \
   --accept-google-terms
 ```
 
@@ -19,13 +20,13 @@ python3 android/pixel/build_catalog.py \
 
 ```text
 Google 官方元数据 -> 下载/SHA-256 校验 -> Factory ZIP/partition 解包
-  -> CarrierSettings protobuf 解析 -> MCFG 制品清单 -> schema v6
+  -> CarrierSettings protobuf 解析 -> modem 制品清单 -> schema v7
   -> NekokoLPA2 图标匹配/下载 -> 完整性检查 -> 只读封存/原子发布
 ```
 
 `--build-id latest` 可跟随指定设备的最新官方 build。为了可重复发布，正式构建应固定 build id。已下载的 ZIP 和镜像解包结果会复用。
 
-在线构建会从 Google 页面读取机型名称。输出文件名、`catalog_release.notes`、`source_snapshots.device_family` 和 `source_snapshots.device_model` 会同时保留营销名称与设备代号，例如 `Pixel 5` / `redfin`。离线构建使用 `--device-name "Pixel 5"`；以后构建 Pixel 9 或更高型号时使用对应代号和名称即可，不会与 Pixel 5 catalog 混淆。
+在线构建会从 Google 页面读取机型名称。设备代号、机型、Android/build/baseband 只出现在输出文件名和构建摘要，不写入运营商 profile。`latest` 会优先选择全球 Factory Image；例如 Pixel 10 Pro XL `mustang` 的全球 build `CP2A.260805.005`，不会误选 Rogers `.A1` 行。Pixel 5 `redfin` 仅作归档。
 
 完全离线时需要显式提供固件元数据：
 
@@ -60,9 +61,9 @@ python3 android/pixel/build_catalog.py \
 - 将 IMS APN、LTE/NR/IWLAN bearer、IP family、漫游协议、公共静态 APN 认证、MTU、ePDG、XCAP、entitlement、服务能力、SIP transport/安全要求、REGISTER expiry 和 User-Agent 模板写入规范表或原始证据表。
 - 按 PLMN 和 3GPP TS 23.003 生成 IMS home domain、realm 和 ISIM 缺失时的 IMPI/IMPU fallback 模板；这些字段明确标记为 `standard_derived`，confidence 为 60。
 - 从 Qualcomm Pixel 的 `vendor.img` 找出 `mcfg_sw.mbn`，记录路径、大小、SHA-256、build 和 baseband 版本。
-- 对冲突的 IMS APN 候选不静默选值；规范 APN 字段保持 `NULL`，候选仍保存在 `raw_config_values`。
+- 对冲突的 IMS APN 候选不静默选值；规范字段保持缺失，冲突细节只保留在构建诊断输出，不进入正式数据库。
 
-首个验证样本是 Pixel 5 (`redfin`) Android 14 `UP1A.231105.001.B2`，baseband `g7250-00264-230619-B-10346159`。
+历史验证样本是 Pixel 5 (`redfin`) Android 14 `UP1A.231105.001.B2`；新的默认提取目标是 Pixel 10 Pro XL (`mustang`) 官方全球 Factory Image。Pixel 10 使用 Tensor/Samsung modem，MCFG inventory 为空并不表示 CarrierSettings 缺失。
 
 ## 已知边界
 

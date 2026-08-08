@@ -1,60 +1,28 @@
-# iOS Carrier Bundle project
+# iOS Carrier Bundle 提取器
 
-这是 iOS 固件/Carrier Bundle 解构与 catalog 重建项目。它与 Android 提取器独立实现，但不复制数据库结构，输出必须符合根目录 [`schema.sql`](../schema.sql)。
+本目录从 Apple 官方 IPSW 的 Carrier/Country Bundle 提取公共静态 IMS、LTE/NR、VoWiFi、IKE、SIP、媒体和运营商能力，输出根目录 schema v7。iOS 与 Android 独立构建，不互补 profile。
 
-项目职责是解包 IPSW、解析 plist/override、归一化公共 IMS/VoWiFi 配置并写入一个由 `tools/init_db.py` 新建的数据库。图标下载和最终只读封存由根项目统一完成。
+## 数据源与工具
 
-## 输入
+- [blacktop/ipsw](https://github.com/blacktop/ipsw) 用于远程 ZIP 枚举、AEA 解密和文件提取。
+- ipsw.me 只用于发现 Product Type 对应的 Apple CDN URL；数据库证据仍来自 Apple IPSW/Carrier Bundle。
+- Apple 没有公开的完整 IMS/VoWiFi 配置 API。`.bbfw` 目前只作为固件制品，不猜测其中未确认的 IMS 字段。
 
-- IPSW 固件元数据。
-- `/System/Library/Carrier Bundles/iPhone/*.bundle`。
-- `/System/Library/CountryBundles/iPhone/*.bundle`。
-- `carrier.plist`、`Info.plist`、设备/基带 override 与签名元数据。
-
-## 工具边界
-
-[blacktop/ipsw](https://github.com/blacktop/ipsw) 作为官方 IPSW 的获取、内容枚举和文件提取工具。本项目负责识别 Carrier/Country Bundle 的优先级，解释 plist/override 语义，并映射到主 schema。`ipsw` 不是现成的 IMS profile 解析器。
-
-AppleDB 和 ipsw.me 可以帮助发现设备/build 与 Apple CDN 固件地址，但它们是第三方索引，不是 Apple 的 IMS 配置 API。来源记录应尽量保存最终 Apple CDN URL、build id 和制品 SHA-256。`idevicerestore` 可作为官方最新恢复固件获取流程的参考。
-
-Apple 没有公开可直接查询完整 IMS/VoWiFi 参数的接口。首版以 Carrier Bundle、Country Bundle 和相关 override 为权威输入；`.bbfw` 只记录制品路径、版本、设备关联和哈希，不以逆向 baseband 内部格式作为首版交付条件。
-
-## 首个验证样本
-
-首个基准不是 iPhone 8，而是支持现代 5G 的 iPhone 16 Pro：
-
-| 项目 | 值 |
-|---|---|
-| 设备名称 | iPhone 16 Pro |
-| Product Type | `iPhone17,1` |
-| iOS / build | 26.6 / `23G71` |
-| Apple 官方 IPSW | `iPhone17,1_26.6_23G71_Restore.ipsw` |
-| IPSW SHA-256 | `2dbcf24e7abd0b7d1b7e5c281bc39f9298b9959c35d0a5b6fc39b30edb0992f7` |
-| baseband | `Mav24-2.70.01` |
-| baseband 文件 | `Firmware/Mav24-2.70.01.Release.bbfw` |
-
-iPhone 16 Pro 可用于观察 LTE、5G NSA/SA、VoWiFi 和可能存在的 VoNR 配置。硬件能力不能替代字段证据：Carrier Bundle 未公开的值仍保持 `NULL`，不能由“设备支持 5G”推断出运营商已开通 VoNR，也不能从 `.bbfw` 文件名推断 IMS 参数。
-
-建议流水线：
-
-```text
-Apple 官方 IPSW/CDN
-  -> blacktop/ipsw 下载、枚举、提取
-  -> 本项目解析 plist/override 和 bundle 优先级
-  -> 字段证据与规范配置写入根 SQLite
-```
+首个验证样本是 iPhone 16 Pro (`iPhone17,1`) iOS 26.6 `23G71`。默认线上目标改为 iPhone 16 Pro Max (`iPhone17,2`) 的最新 signed IPSW；还可以独立构建 iPhone 15 Pro Max (`iPhone16,2`) 等代际。
 
 ## 构建
 
-完整构建会从 Apple CDN 获取固定 IPSW 中需要的成员，并自动完成 AEA 解密、APFS 挂载、bundle 导出、SQLite 导入、图标打包和只读封存：
-
 ```bash
-python3 ios/build_catalog.py
+# 当前 Pro Max
+python3 ios/build_catalog.py --product-type iPhone17,2 --version latest
+
+# 上一代 Pro Max；输出仍是另一份独立 SQLite
+python3 ios/build_catalog.py --product-type iPhone16,2 --version latest
 ```
 
-需要 Python 3、Git、Go、Rust/Cargo、FUSE 3 和约 20 GiB 可用空间。中间文件保存在 `data/tmp/ios/iphone16pro-23g71`，失败时保留 `.building` 数据库供检查，现有正式输出不会被覆盖。
+正式 release 应把 `--version` 固定为具体 iOS 版本或 build。需要 Python 3、Git、Go、Rust/Cargo、FUSE 3 和足够容纳 AEA/APFS 的空间。
 
-如果 Carrier/Country Bundle 已经导出，可以跳过 IPSW、AEA 和 APFS 步骤：
+已经导出 bundle 时可跳过下载和 APFS：
 
 ```bash
 python3 ios/build_catalog.py \
@@ -62,47 +30,19 @@ python3 ios/build_catalog.py \
   --baseband data/tmp/ios/iphone16pro-23g71/outer/Mav24-2.70.01.Release.bbfw
 ```
 
-`--baseband` 是可选的；省略时离线构建不会写入 `.bbfw` inventory。默认输出为 `data/carrier-bundles-iphone-16-pro-iphone17-1-23g71.sqlite3`。已有输出必须先改名或指定新的 `--output`，构建器不会覆盖它。
+不带 `--product-type` 的离线命令沿用上述 iPhone 16 Pro 固定元数据。其他离线制品应显式给出 `--product-type`、`--version` 和必要时的 `--device-class`。
 
-## 当前结果
+## v7 映射
 
-iPhone 16 Pro 样本的 I1 获取/提取和 I2 规范化已经完成。最终 schema v6 catalog 包含：
-
-| 内容 | 数量 |
-|---|---:|
-| Carrier profile | 1915 |
-| access 配置 | 1857 |
-| IMS 配置 | 1218 |
-| IKE 配置 | 690 |
-| SIP REGISTER 配置 | 794 |
-| SIP Contact 参数 | 1734 |
-| service capability | 4627 |
-| endpoint | 1445 |
-| 图标 BLOB | 243 |
-| raw public-static value | 3809 |
-| field evidence | 4973 |
-
-该结果通过 SQLite `quick_check`、外键检查、重复匹配规则检查和用户身份列检查。数据库不包含从 SIM/ISIM 或真实设备读取的用户数据。
-
-## 主要映射
-
-| iOS 信息 | 主 schema |
+| iOS 信息 | v7 位置 |
 |---|---|
-| IPSW、设备、系统与基带版本 | `source_snapshots` |
-| bundle 名、运营商名称 | `carriers`、`carrier_profiles` |
-| `SupportedSIMs`、GID、SPN | `plmns`、`profile_match_rules` |
-| `AttachAPN`、IMS APN、地址族 | `access_configs` |
-| P-CSCF 必需性/发现方式 | `pcscf_discovery_methods`、`network_endpoints` |
-| IMS domain、realm、transport、IMPI/IMPU 模板 | `ims_configs`、`ims_identity_templates` |
-| LTE/VoWiFi SIP Header 差异 | `sip_register_configs` 及 SIP 子表 |
-| VoLTE/VoWiFi/SMS 能力开关 | `service_capabilities` |
-| entitlement/E911 端点 | `entitlement_configs`、`emergency_configs` |
-| 尚未归一化的安全静态键 | `raw_config_values` |
+| Bundle 来源、哈希、解析器和字段证据 | `source_artifacts`、`profile_sources`、`field_evidence` |
+| 运营商、PLMN、GID、SPN 和前缀 | `carriers`、`profile_match_rules` |
+| APN/DNN、P-CSCF、IMS identity、IKE、SIP、codec、能力、entitlement、E911 | `carrier_profiles.config_json` |
+| 图标 | `visual_assets` |
 
-适配器不能输出 IMSI、ICCID、MSISDN、IMEI、IMPI/IMPU 实值、SIM 密钥或 AKA 会话材料。
+设备、Product Type、OS/build 和 baseband 只存在于输出文件名、日志与构建 summary，不写入数据库。未发现字段保持缺失；禁止输出实际 IMSI、ICCID、IMEI、IMPI/IMPU、AKA 材料、会话密钥和动态网络数据。
 
-完整路线、参考项目和里程碑见 [`docs/提取器路线图.md`](../docs/提取器路线图.md)。iPhone 16 Pro 样本已经完成 I1 获取/提取和 I2 规范化；后续设备适配代码和平台测试继续放在本项目目录中。大型 IPSW、解包目录及生成数据库不提交。
+## Actions
 
-## GitHub Actions 边界
-
-常规 CI 会检查 iOS Python 模块的语法。iPhone 16 Pro 样本需要约 8 GiB AEA、解密后的大体积 APFS 和可用的 `/dev/fuse`，因此 GitHub 托管 runner 暂不执行完整提取；发布线上构建前必须在有明确磁盘容量和 FUSE 权限的 self-hosted runner 上验证。规范化导入器输出 schema v6，并继续通过 `tools/verify_catalog.py` 和平台测试校验。
+全量 IPSW 需要大磁盘和 `/dev/fuse`。仓库的多 catalog workflow 将 iOS job 放在带 `ios-extractor` 标签的 self-hosted Linux runner；普通 GitHub runner 只执行 fixture、语法和 schema 测试。

@@ -1,7 +1,9 @@
 import plistlib
+import json
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from contextlib import closing
 from pathlib import Path
 
@@ -11,7 +13,7 @@ from ios.bundles import (
     parse_supported_sim,
 )
 from ios.catalog import import_ios_catalog
-from ios.sources import IPHONE_16_PRO_26_6
+from ios.sources import IPHONE_16_PRO_26_6, resolve_ipsw_artifact
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,9 +29,11 @@ def _create_database(path: Path) -> None:
     with closing(sqlite3.connect(path)) as connection:
         connection.executescript((ROOT / "schema.sql").read_text(encoding="utf-8"))
         connection.execute(
-            """INSERT INTO catalog_release(
-                   singleton, release_id, generated_at, generator_version
-               ) VALUES (1, 'ios-test', '2026-08-07T00:00:00+00:00', 'test')"""
+            """INSERT INTO catalog_metadata(
+                   singleton, release_id, generated_at, generator_name,
+                   generator_version
+               ) VALUES (1, 'ios-test', '2026-08-07T00:00:00+00:00',
+                         'carrier-bundles', 'test')"""
         )
         connection.commit()
 
@@ -52,6 +56,20 @@ def _fixture(root: Path) -> Path:
         {
             "CarrierName": "Example Wireless",
             "SupportedSIMs": ["310260_GID1-54_ID-890126", "310260_GID1-55"],
+            "SupportsImsCapability": True,
+            "apns": [
+                {
+                    "apn": "ims",
+                    "username": "",
+                    "password": "",
+                    "type-mask": 131072,
+                    "tech-type-mask": 131072,
+                    "AllowedProtocolMask": 3,
+                    "AllowedProtocolMaskInRoaming": 2,
+                    "PcscfAddressRequired": True,
+                    "Support5GSaHandOver": True,
+                }
+            ],
             "IMSConfig": {
                 "Signaling": {
                     "DefaultAuthAlgorithm": "AKAv1-MD5",
@@ -69,6 +87,16 @@ def _fixture(root: Path) -> Path:
                     "E911OverITechSupported": True,
                 },
                 "XCAP": {"supported": True},
+                "Media": {
+                    "AudioCodecs": {
+                        "112": {
+                            "EncodingName": "EVS",
+                            "SampleRate": 16000,
+                            "br": "5.9-24.4",
+                            "bw": "nb-wb",
+                        }
+                    }
+                },
             },
             "TechSettings": {
                 "ExtraConfigurationAttributeRequestv4": [
@@ -133,27 +161,59 @@ def _fixture(root: Path) -> Path:
     _write_plist(
         bundle / "overrides_D93_D94_D47_D48.plist",
         {
-            "SupportsImsCapability": True,
             "SupportsVoNR": True,
-            "apns": [
-                {
-                    "apn": "ims",
-                    "username": "",
-                    "password": "",
-                    "type-mask": 131072,
-                    "tech-type-mask": 131072,
-                    "AllowedProtocolMask": 3,
-                    "AllowedProtocolMaskInRoaming": 2,
-                    "PcscfAddressRequired": True,
-                    "Support5GSaHandOver": True,
-                }
-            ],
         },
     )
     return bundle_root
 
 
 class IOSBundleTests(unittest.TestCase):
+    def test_discovers_latest_signed_apple_cdn_ipsw(self) -> None:
+        payload = json.dumps(
+            {
+                "firmwares": [
+                    {
+                        "version": "26.5",
+                        "buildid": "23F1",
+                        "releasedate": "2026-07-01",
+                        "signed": True,
+                        "url": "https://updates.cdn-apple.com/old.ipsw",
+                        "filesize": 100,
+                    },
+                    {
+                        "version": "26.6",
+                        "buildid": "23G71",
+                        "releasedate": "2026-08-01",
+                        "signed": True,
+                        "url": "https://updates.cdn-apple.com/new.ipsw",
+                        "filesize": 200,
+                    },
+                    {
+                        "version": "26.7",
+                        "buildid": "23H1",
+                        "releasedate": "2026-09-01",
+                        "signed": False,
+                        "url": "https://updates.cdn-apple.com/unsigned.ipsw",
+                    },
+                ]
+            }
+        ).encode()
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return payload
+
+        with patch("ios.sources.urllib.request.urlopen", return_value=Response()):
+            artifact = resolve_ipsw_artifact("iPhone17,2")
+        self.assertEqual(artifact.build_id, "23G71")
+        self.assertEqual(artifact.url, "https://updates.cdn-apple.com/new.ipsw")
+
     def test_parses_public_match_prefixes(self) -> None:
         match = parse_supported_sim("310260_GID1-54_GID2-01_ID-890126")
         self.assertIsNotNone(match)
@@ -175,7 +235,9 @@ class IOSBundleTests(unittest.TestCase):
             bundle_root = _fixture(Path(directory))
             (bundle_root / "310270").symlink_to("Example_NR_US.bundle")
             (bundle_root / "310260_GID1-55").symlink_to("Example_NR_US.bundle")
-            variants = load_carrier_bundle_variants(bundle_root, "D93")
+            variants = load_carrier_bundle_variants(
+                bundle_root, "D93", include_device_override=True
+            )
         self.assertEqual([item.variant_name for item in variants], ["base", "Configuration_1"])
         self.assertTrue(variants[0].config["SupportsVoNR"])
         self.assertEqual([item.plmn for item in variants[0].matches], ["310260", "310270"])
@@ -197,52 +259,36 @@ class IOSCatalogTests(unittest.TestCase):
                 device_class="D93",
             )
             with closing(sqlite3.connect(database)) as connection:
-                profiles = connection.execute(
-                    "SELECT count(*) FROM carrier_profiles"
-                ).fetchone()[0]
-                accesses = connection.execute(
-                    """SELECT access_kind, count(*) FROM access_configs
-                       GROUP BY access_kind ORDER BY access_kind"""
+                rows = connection.execute(
+                    """SELECT profile_kind, priority, lte_ims_status,
+                              nr_ims_status, vowifi_status, config_json
+                       FROM carrier_profiles ORDER BY priority"""
                 ).fetchall()
-                identity = connection.execute(
-                    "SELECT value_template FROM ike_identity_rules WHERE role = 'idi' LIMIT 1"
-                ).fetchone()[0]
-                endpoint = connection.execute(
-                    """SELECT address FROM network_endpoints
-                       WHERE service = 'epdg' LIMIT 1"""
-                ).fetchone()[0]
-                ims = connection.execute(
-                    """SELECT home_domain, realm, aka_algorithm,
-                              ipsec_security_agreement
-                       FROM ims_configs LIMIT 1"""
-                ).fetchone()
-                contacts = connection.execute(
-                    """SELECT name, value_template FROM sip_contact_parameters
-                       ORDER BY name, value_template"""
-                ).fetchall()
-                source = connection.execute(
-                    """SELECT device_model, build_id, baseband_version
-                       FROM source_snapshots
-                       WHERE source_kind = 'ios_carrier_bundle'"""
-                ).fetchone()
+                profiles = len(rows)
+                configs = [json.loads(row[5]) for row in rows]
+                config = configs[-1]
+                identity = config["access"]["vowifi"]["ike"]["identities"]["idi"][0]["value_template"]
+                endpoint = config["access"]["vowifi"]["epdg"][0]["address"]
+                ims = config["ims"]
+                contacts = [
+                    (item["name"], item.get("value_template"))
+                    for item in config["sip"]["lte"]["contact_parameters"]
+                ] + [
+                    (item["name"], item.get("value_template"))
+                    for item in config["sip"]["vowifi"]["contact_parameters"]
+                ]
+                source_columns = {
+                    row[1]
+                    for row in connection.execute("PRAGMA table_info(source_artifacts)")
+                }
                 priorities = connection.execute(
                     "SELECT profile_kind, priority FROM carrier_profiles ORDER BY priority"
                 ).fetchall()
-                ike = connection.execute(
-                    """SELECT nat_keepalive_enabled, dpd_enabled,
-                              dpd_retry_interval_seconds, dpd_max_retries,
-                              validate_remote_certificate, certificate_hostname
-                       FROM ike_configs LIMIT 1"""
-                ).fetchone()
                 schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
                 integrity = connection.execute("PRAGMA quick_check").fetchone()[0]
 
         self.assertEqual(stats.profiles_imported, 2)
         self.assertEqual(profiles, 2)
-        self.assertEqual(
-            accesses,
-            [("lte_epc", 2), ("nr_5gc", 2), ("wifi_epdg", 2)],
-        )
         self.assertEqual(
             identity,
             "0{imsi}@nai.epc.mnc{mnc3}.mcc{mcc}.3gppnetwork.org",
@@ -252,20 +298,33 @@ class IOSCatalogTests(unittest.TestCase):
             "epdg.epc.mnc{mnc3}.mcc{mcc}.pub.3gppnetwork.org",
         )
         self.assertEqual(
-            ims,
             (
-                "ims.example.test",
-                "ims.mnc260.mcc310.3gppnetwork.org",
-                "AKAv1-MD5",
-                "required",
+                ims["home_domain"],
+                ims["realm"],
+                ims["authentication"]["algorithm"],
+                ims["security_agreement"],
             ),
+            ("ims.example.test", "ims.mnc260.mcc310.3gppnetwork.org", "AKAv1-MD5", "required"),
         )
         self.assertIn(('+g.3gpp.accesstype', '"cellular2"'), contacts)
         self.assertIn(('+g.3gpp.accesstype', '"wlan1"'), contacts)
-        self.assertEqual(source, ("iPhone17,1", "23G71", "Mav24-2.70.01"))
-        self.assertEqual(priorities, [("mvno", 50), ("device_specific", 100)])
-        self.assertEqual(ike, (1, 0, 10, 4, 1, "epdg.example.test"))
-        self.assertEqual(schema_version, 6)
+        self.assertTrue({"device_model", "os_version", "build_id"}.isdisjoint(source_columns))
+        self.assertEqual(priorities, [("mvno", 50), ("default", 100)])
+        ike = config["access"]["vowifi"]["ike"]
+        self.assertEqual(
+            (
+                ike["nat_keepalive_enabled"],
+                ike["dpd_enabled"],
+                ike["dpd_retry_interval_seconds"],
+                ike["dpd_max_retries"],
+                ike["certificate"]["validate"],
+                ike["certificate"]["hostname"],
+            ),
+            (True, False, 10, 4, True, "epdg.example.test"),
+        )
+        self.assertEqual(config["media"]["audio"]["codecs"][0]["name"], "EVS")
+        self.assertEqual(rows[-1][2:5], ("ready", "ready", "ready"))
+        self.assertEqual(schema_version, 7)
         self.assertEqual(integrity, "ok")
 
 

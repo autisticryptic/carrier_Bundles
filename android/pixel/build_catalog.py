@@ -7,11 +7,9 @@ import argparse
 import json
 import os
 import re
-import sqlite3
 import subprocess
 import sys
 import venv
-from contextlib import closing
 from dataclasses import asdict, replace
 from pathlib import Path
 
@@ -74,7 +72,11 @@ from android.pixel.firmware import (  # noqa: E402
     extract_pixel_factory,
     sha256_file,
 )
-from android.pixel.sources import FactoryArtifact, resolve_factory_artifact  # noqa: E402
+from android.pixel.sources import (  # noqa: E402
+    FACTORY_IMAGES_URL,
+    FactoryArtifact,
+    resolve_factory_artifact,
+)
 
 
 def _slug(value: str) -> str:
@@ -171,18 +173,6 @@ def _run_tool(*arguments: str) -> None:
     subprocess.run([sys.executable, *arguments], cwd=ROOT, check=True)
 
 
-def _label_release(database: Path, artifact: FactoryArtifact) -> None:
-    notes = (
-        f"Google {artifact.device_name} ({artifact.device}) factory image; "
-        f"Android {artifact.os_version}; build {artifact.build_id}."
-    )
-    with closing(sqlite3.connect(database)) as connection, connection:
-        connection.execute(
-            "UPDATE catalog_release SET notes = ? WHERE singleton = 1", (notes,)
-        )
-        connection.commit()
-
-
 def main() -> None:
     args = _parse_args()
     try:
@@ -216,17 +206,17 @@ def main() -> None:
         )
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    release_id = f"pixel-{_slug(args.device)}-{build_slug}"
+    release_id = f"catalog-{artifact.sha256[:16]}"
     _run_tool(
         str(ROOT / "tools" / "init_db.py"),
         str(building),
         "--release-id",
         release_id,
+        "--generator-name",
+        "carrier-bundles",
         "--generator-version",
         f"android/pixel {PARSER_VERSION}",
     )
-    _label_release(building, artifact)
-
     try:
         firmware = extract_pixel_factory(factory_zip, work_dir)
         stats = import_pixel_catalog(
@@ -236,7 +226,7 @@ def main() -> None:
             device_name=artifact.device_name,
             os_version=artifact.os_version,
             build_id=artifact.build_id,
-            source_uri=artifact.url,
+            source_uri=FACTORY_IMAGES_URL,
             factory_sha256=artifact.sha256,
             include_standard_derived=not args.no_standard_derived,
         )

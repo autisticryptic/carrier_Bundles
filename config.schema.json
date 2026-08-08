@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/autisticryptic/carrier_Bundles/blob/main/config.schema.json",
+  "title": "Carrier Bundles IMS static profile",
+  "description": "Public, device-neutral IMS/VoLTE/VoNR/VoWiFi policy. Missing keys mean the consumer default.",
+  "type": "object",
+  "required": ["protocol_baseline"],
+  "properties": {
+    "protocol_baseline": { "const": "carrier-bundles-ims-v1" },
+    "ims": { "$ref": "#/$defs/object" },
+    "access": { "$ref": "#/$defs/object" },
+    "sip": { "$ref": "#/$defs/object" },
+    "media": { "$ref": "#/$defs/object" },
+    "services": { "$ref": "#/$defs/object" },
+    "entitlement": { "$ref": "#/$defs/object" },
+    "emergency": { "$ref": "#/$defs/object" },
+    "readiness": { "$ref": "#/$defs/object" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "object": { "type": "object", "additionalProperties": true }
+  }
+}

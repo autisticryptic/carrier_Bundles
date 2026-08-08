@@ -114,6 +114,21 @@ def parse_factory_page(html: str, device: str) -> list[FactoryArtifact]:
     return parser.artifacts
 
 
+def choose_latest_artifact(artifacts: list[FactoryArtifact]) -> FactoryArtifact:
+    """Choose the newest global row, avoiding a trailing carrier image."""
+
+    if not artifacts:
+        raise ValueError("cannot choose latest Pixel artifact from an empty list")
+    global_artifacts = [
+        artifact
+        for artifact in artifacts
+        if not re.search(r"\.A[0-9A-Z]+(?:$|[._-])", artifact.build_id, re.I)
+        and "rogers" not in artifact.description.casefold()
+        and "carrier" not in artifact.description.casefold()
+    ]
+    return (global_artifacts or artifacts)[-1]
+
+
 def resolve_factory_artifact(
     device: str,
     build_id: str = "latest",
@@ -138,7 +153,7 @@ def resolve_factory_artifact(
     if not artifacts:
         raise RuntimeError(f"no factory images found for Pixel device {device!r}")
     if build_id.lower() == "latest":
-        return artifacts[-1]
+        return choose_latest_artifact(artifacts)
     for artifact in artifacts:
         if artifact.build_id.casefold() == build_id.casefold():
             return artifact

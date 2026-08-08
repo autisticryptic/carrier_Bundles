@@ -75,13 +75,13 @@ def main() -> None:
         if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
             raise SystemExit("quick_check failed")
         row = connection.execute(
-            "SELECT release_id, sealed FROM catalog_release WHERE singleton = 1"
+            "SELECT release_id, sealed FROM catalog_metadata WHERE singleton = 1"
         ).fetchone()
         if row is None:
-            raise SystemExit("catalog_release is missing")
+            raise SystemExit("catalog_metadata is missing")
         if row[1] != 0:
             raise SystemExit("catalog is already sealed")
-        connection.execute("UPDATE catalog_release SET sealed = 1 WHERE singleton = 1")
+        connection.execute("UPDATE catalog_metadata SET sealed = 1 WHERE singleton = 1")
         connection.commit()
         connection.execute("VACUUM")
 
