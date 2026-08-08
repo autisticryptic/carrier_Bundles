@@ -130,20 +130,43 @@ jobs:
           path: catalog-set
           compression-level: 0
           retention-days: 30
-      - name: Replace old releases and publish v7 Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          release_tag="${{ inputs.release_tag || 'v0.3.0-catalog-v7' }}"
-          if [[ -z "$release_tag" ]]; then release_tag="v0.3.0-catalog-v7"; fi
-
-          # These are the two legacy releases the user requested to remove.
-          for old_tag in v0.1.0-pixel5 v0.2.0-iphone16pro; do
-            gh release delete "$old_tag" --yes --cleanup-tag 2>/dev/null || true
-          done
-          gh release delete "$release_tag" --yes --cleanup-tag 2>/dev/null || true
-
-          gh release create "$release_tag" catalog-set/* \
-            --title "Carrier Bundles $release_tag" \
-            --notes "Independent schema-v7 Pixel and iOS catalogs from workflow run $GITHUB_RUN_ID. See SHA256SUMS." \
-            --target "$GITHUB_SHA"
+      - name: Delete the two legacy releases and tags
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const tags = ['v0.1.0-pixel5', 'v0.2.0-iphone16pro'];
+            for (const tag of tags) {
+              try {
+                const release = await github.rest.repos.getReleaseByTag({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tag,
+                });
+                await github.rest.repos.deleteRelease({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  release_id: release.data.id,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+              try {
+                await github.rest.git.deleteRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: `tags/${tag}`,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+      - name: Publish schema-v7 catalog Release
+        uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2.4.1
+        with:
+          tag_name: ${{ inputs.release_tag || 'v0.3.0-catalog-v7' }}
+          name: Carrier Bundles v0.3.0 schema v7
+          target_commitish: ${{ github.sha }}
+          body: Independent schema-v7 Pixel 10 Pro XL and iPhone 16 Pro Max catalogs. See SHA256SUMS.
+          files: catalog-set/*
+          fail_on_unmatched_files: true
+          overwrite_files: true
