@@ -294,11 +294,14 @@ def _database_targets(connection: sqlite3.Connection) -> list[MatchTarget]:
             provider_name=row[5],
         )
         for row in connection.execute(
-            """SELECT c.carrier_id, p.plmn, p.mcc, p.mnc,
+            """SELECT DISTINCT c.carrier_id, mr.plmn,
+                      substr(mr.plmn, 1, 3), substr(mr.plmn, 4),
                       c.canonical_name, c.brand_name
                FROM carriers AS c
-               JOIN plmns AS p ON p.carrier_id = c.carrier_id
-               ORDER BY c.carrier_id, p.plmn"""
+               JOIN carrier_profiles AS cp ON cp.carrier_id = c.carrier_id
+               JOIN profile_match_rules AS mr ON mr.profile_id = cp.profile_id
+               WHERE mr.plmn IS NOT NULL AND mr.is_exclusion = 0
+               ORDER BY c.carrier_id, mr.plmn"""
         )
     ]
     targets.extend(
@@ -314,14 +317,14 @@ def _database_targets(connection: sqlite3.Connection) -> list[MatchTarget]:
             provider_name=row[7] or row[8],
         )
         for row in connection.execute(
-            """SELECT cp.profile_id, p.plmn, p.mcc, p.mnc,
+            """SELECT cp.profile_id, mr.plmn,
+                      substr(mr.plmn, 1, 3), substr(mr.plmn, 4),
                       mr.gid1, mr.gid2, cp.display_name, mr.spn,
                       COALESCE(c.brand_name, c.canonical_name)
                FROM carrier_profiles AS cp
                JOIN profile_match_rules AS mr ON mr.profile_id = cp.profile_id
-               JOIN plmns AS p ON p.plmn = mr.plmn
                LEFT JOIN carriers AS c ON c.carrier_id = cp.carrier_id
-               WHERE mr.is_exclusion = 0
+               WHERE mr.plmn IS NOT NULL AND mr.is_exclusion = 0
                ORDER BY cp.profile_id, mr.priority, mr.match_rule_id"""
         )
     )
@@ -331,13 +334,13 @@ def _database_targets(connection: sqlite3.Connection) -> list[MatchTarget]:
 def _verify_build_database(connection: sqlite3.Connection) -> None:
     connection.execute("PRAGMA foreign_keys = ON")
     version = connection.execute("PRAGMA user_version").fetchone()[0]
-    if version < 4:
-        raise RuntimeError("icon BLOB packaging requires schema version 4 or newer")
+    if version != 7:
+        raise RuntimeError("icon BLOB packaging requires schema version 7")
     release = connection.execute(
-        "SELECT sealed FROM catalog_release WHERE singleton = 1"
+        "SELECT sealed FROM catalog_metadata WHERE singleton = 1"
     ).fetchone()
     if release is None:
-        raise RuntimeError("catalog_release is missing")
+        raise RuntimeError("catalog_metadata is missing")
     if release[0] != 0:
         raise RuntimeError("cannot package icons into a sealed catalog")
 
@@ -413,15 +416,14 @@ def package_database(
                 "DELETE FROM visual_assets WHERE source_name = ?", (ASSET_SOURCE_NAME,)
             )
             connection.execute(
-                "DELETE FROM source_snapshots WHERE parser_name = ?", (PACKAGER_NAME,)
+                "DELETE FROM source_artifacts WHERE parser_name = ?", (PACKAGER_NAME,)
             )
 
             connection.execute(
-                """INSERT INTO source_snapshots(
-                       source_kind, platform, vendor, source_revision,
-                       source_uri, extracted_at, parser_name, parser_version,
-                       license_note
-                   ) VALUES ('icon_catalog', 'shared', 'NekokoLPA2', ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO source_artifacts(
+                       source_kind, source_revision, source_uri, extracted_at,
+                       parser_name, parser_version, license_note
+                   ) VALUES ('icon_catalog', ?, ?, ?, ?, ?, ?)""",
                 (
                     nekokolpa2_revision,
                     NEKOKOLPA2_URL,
@@ -434,12 +436,11 @@ def package_database(
             )
             for mcc, source in sorted(catalog_sources.items()):
                 connection.execute(
-                    """INSERT INTO source_snapshots(
-                           source_kind, platform, vendor, source_revision,
-                           source_uri, artifact_sha256, extracted_at,
+                    """INSERT INTO source_artifacts(
+                           source_kind, source_revision, source_uri,
+                           artifact_sha256, extracted_at,
                            parser_name, parser_version, license_note
-                       ) VALUES ('icon_catalog', 'shared', 'operator-icons',
-                                 ?, ?, ?, ?, ?, ?, ?)""",
+                       ) VALUES ('icon_catalog', ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         nekokolpa2_revision,
                         _url(source_base_url, "catalog", f"{mcc}.toml"),

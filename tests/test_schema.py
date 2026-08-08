@@ -1,6 +1,6 @@
 import base64
-import json
 import hashlib
+import json
 import sqlite3
 import stat
 import subprocess
@@ -15,38 +15,158 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from catalog_contract import CONFIG_CONTRACT, finalized_config
 from icons.package_icons import package_database
 
 
+EXPECTED_TABLES = {
+    "catalog_metadata",
+    "source_artifacts",
+    "visual_assets",
+    "carriers",
+    "carrier_profiles",
+    "profile_match_rules",
+    "profile_sources",
+    "field_evidence",
+}
+
+
 class SchemaTests(unittest.TestCase):
+    def test_config_json_schema_is_present_and_pinned(self) -> None:
+        document = json.loads((ROOT / "config.schema.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            document["$schema"], "https://json-schema.org/draft/2020-12/schema"
+        )
+        self.assertEqual(
+            document["properties"]["protocol_baseline"]["const"],
+            "carrier-bundles-ims-v1",
+        )
+
     def setUp(self) -> None:
         self.db = sqlite3.connect(":memory:")
         self.db.executescript((ROOT / "schema.sql").read_text(encoding="utf-8"))
         self.db.execute(
-            """INSERT INTO catalog_release(
-                   singleton, release_id, generated_at, generator_version
-               ) VALUES (1, 'test-release', '2026-08-07T00:00:00Z', 'test')"""
+            """INSERT INTO catalog_metadata(
+                   singleton, release_id, generated_at, generator_name,
+                   generator_version
+               ) VALUES (1, 'test-release', '2026-08-07T00:00:00Z',
+                         'carrier-bundles', 'test')"""
         )
 
     def tearDown(self) -> None:
         self.db.close()
 
-    def test_catalog_contains_no_runtime_or_subscriber_tables(self) -> None:
-        table_names = {
+    def _insert_profile(self, profile_id: str = "example") -> dict:
+        config = {
+            "protocol_baseline": CONFIG_CONTRACT,
+            "ims": {
+                "home_domain": "ims.mnc260.mcc310.3gppnetwork.org",
+                "realm": "ims.mnc260.mcc310.3gppnetwork.org",
+                "authentication": {"scheme": "ims_aka"},
+                "identity_templates": [
+                    {
+                        "role": "impi",
+                        "source": "derived_imsi",
+                        "value_template": "{imsi}@{home_domain}",
+                    }
+                ],
+            },
+            "access": {
+                "lte": {
+                    "apn": "ims",
+                    "ip_family": "ipv4v6",
+                    "pcscf_discovery": ["pco", "epco"],
+                },
+                "vowifi": {
+                    "epdg": [
+                        {
+                            "address": "epdg.epc.mnc260.mcc310.pub.3gppnetwork.org",
+                            "discovery": "standard_derived",
+                        }
+                    ],
+                    "pcscf_discovery": ["ike_cfg"],
+                    "ike": {
+                        "eap_method": "eap_aka",
+                        "identities": {
+                            "idi": [{"value_template": "0{imsi}@{home_domain}"}]
+                        },
+                        "ike_sa_proposals": [{"encryption": "AES-256"}],
+                        "child_sa_proposals": [{"encryption": "AES-256"}],
+                    },
+                },
+            },
+            "sip": {
+                "common": {
+                    "register": {"requested_expires_seconds": 3600},
+                    "security_client": [
+                        {
+                            "mechanism": "ipsec-3gpp",
+                            "integrity": "hmac-sha-1-96",
+                            "encryption": "aes-cbc",
+                        }
+                    ],
+                },
+                "vowifi": {
+                    "contact_parameters": [
+                        {"name": "+g.3gpp.accesstype", "value_template": "wlan"}
+                    ]
+                },
+            },
+            "media": {
+                "audio": {"codecs": [{"name": "EVS", "payload_type": 112}]},
+                "video": {"codecs": [{"name": "H.264", "payload_type": 114}]},
+            },
+            "services": {
+                "volte": True,
+                "vowifi": True,
+                "vilte": True,
+                "hd_voice": True,
+            },
+        }
+        encoded, status = finalized_config(config)
+        self.db.execute(
+            """INSERT OR IGNORE INTO carriers(
+                   carrier_id, canonical_name, brand_name, country_iso2
+               ) VALUES ('us-example', 'Example Wireless', 'Example', 'US')"""
+        )
+        self.db.execute(
+            """INSERT INTO carrier_profiles(
+                   profile_id, carrier_id, display_name, confidence,
+                   lte_ims_status, nr_ims_status, vowifi_status, config_json
+               ) VALUES (?, 'us-example', 'Example', 90, ?, ?, ?, ?)""",
+            (profile_id, status["lte"], status["nr"], status["vowifi"], encoded),
+        )
+        self.db.execute(
+            "INSERT INTO profile_match_rules(profile_id, plmn) VALUES (?, '310260')",
+            (profile_id,),
+        )
+        return json.loads(encoded)
+
+    def test_schema_has_exactly_eight_tables_and_no_device_match_columns(self) -> None:
+        tables = {
             row[0]
             for row in self.db.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
+                "SELECT name FROM sqlite_schema WHERE type = 'table'"
             )
+            if not row[0].startswith("sqlite_")
         }
-        forbidden_tables = {
-            "line_ims_binding",
-            "sim_identity",
-            "registration_attempt",
-            "runtime_snapshots",
-            "client_policy_parameters",
+        self.assertEqual(tables, EXPECTED_TABLES)
+        columns = {
+            row[1]
+            for row in self.db.execute("PRAGMA table_info(profile_match_rules)")
         }
-        self.assertTrue(forbidden_tables.isdisjoint(table_names))
+        self.assertNotIn("device_model_pattern", columns)
+        self.assertNotIn("os_build_pattern", columns)
+        source_columns = {
+            row[1] for row in self.db.execute("PRAGMA table_info(source_artifacts)")
+        }
+        self.assertTrue(
+            {"device_model", "platform", "os_version", "build_id"}.isdisjoint(
+                source_columns
+            )
+        )
 
+    def test_catalog_contains_no_runtime_or_subscriber_tables(self) -> None:
         forbidden_columns = {
             "imsi",
             "iccid",
@@ -58,84 +178,47 @@ class SchemaTests(unittest.TestCase):
             "opc",
             "aka_response",
         }
-        actual_columns = set()
-        for table in table_names:
+        actual_columns: set[str] = set()
+        for table in EXPECTED_TABLES:
             actual_columns.update(
                 row[1].lower()
                 for row in self.db.execute(f'PRAGMA table_info("{table}")')
             )
         self.assertTrue(forbidden_columns.isdisjoint(actual_columns))
 
-    def test_lte_and_vowifi_share_one_ims_profile(self) -> None:
-        self.db.execute(
-            """INSERT INTO visual_assets(
-                   asset_id, asset_kind, asset_data, local_path, media_type,
-                   source_name
-               ) VALUES ('badge-tmobile', 'carrier_badge', ?, ?,
-                         'image/svg+xml', 'project')""",
-            (
-                (ROOT / "icons/fallback/us-t-mobile.svg").read_bytes(),
-                "icons/fallback/us-t-mobile.svg",
-            ),
-        )
-        self.db.execute(
-            """INSERT INTO carriers(
-                   carrier_id, canonical_name, brand_name, country_iso2, primary_asset_id
-               ) VALUES ('us-t-mobile', 'T-Mobile USA', 'T-Mobile', 'US', 'badge-tmobile')"""
-        )
-        self.db.execute(
-            """INSERT INTO plmns(plmn, carrier_id, mcc, mnc, mnc_length, country_iso2)
-               VALUES ('310260', 'us-t-mobile', '310', '260', 3, 'US')"""
-        )
-        self.db.execute(
-            """INSERT INTO carrier_profiles(
-                   profile_id, carrier_id, display_name, confidence
-               ) VALUES ('us-tmobile-default', 'us-t-mobile', 'T-Mobile default', 90)"""
-        )
-        self.db.execute(
-            "INSERT INTO profile_match_rules(profile_id, plmn) VALUES ('us-tmobile-default', '310260')"
-        )
-        self.db.execute(
-            """INSERT INTO ims_configs(
-                   profile_id, home_domain, realm, private_identity_source,
-                   public_identity_source
-               ) VALUES ('us-tmobile-default', ?, ?, 'isim', 'isim')""",
-            (
-                "ims.mnc260.mcc310.3gppnetwork.org",
-                "ims.mnc260.mcc310.3gppnetwork.org",
-            ),
-        )
-        self.db.execute(
-            """INSERT INTO access_configs(
-                   profile_id, access_kind, apn_dnn, ip_family
-               ) VALUES ('us-tmobile-default', 'lte_epc', 'ims', 'ipv4v6')"""
-        )
-        self.db.execute(
-            """INSERT INTO access_configs(
-                   profile_id, access_kind, apn_dnn, ip_family
-               ) VALUES ('us-tmobile-default', 'wifi_epdg', 'ims', 'ipv4v6')"""
-        )
-        wifi_access = self.db.execute("SELECT last_insert_rowid()").fetchone()[0]
-        self.db.execute(
-            """INSERT INTO network_endpoints(
-                   profile_id, access_id, service, address_kind, address,
-                   port, transport, discovery_method
-               ) VALUES ('us-tmobile-default', ?, 'epdg', 'fqdn', ?, 500,
-                         'ikev2', 'standard_derived')""",
-            (wifi_access, "epdg.epc.mnc260.mcc310.pub.3gppnetwork.org"),
-        )
-
-        carrier = self.db.execute(
-            "SELECT carrier_name, ims_domain, asset_path FROM v_carrier_catalog WHERE plmn = '310260'"
+    def test_one_profile_contains_ims_vowifi_media_and_5g_sections(self) -> None:
+        expected = self._insert_profile()
+        row = self.db.execute(
+            """SELECT lte_ims_status, nr_ims_status, vowifi_status, config_json
+               FROM v_profile_catalog WHERE plmn = '310260'"""
         ).fetchone()
-        self.assertEqual(carrier[0], "T-Mobile USA")
-        self.assertEqual(carrier[1], "ims.mnc260.mcc310.3gppnetwork.org")
-        self.assertEqual(carrier[2], "icons/fallback/us-t-mobile.svg")
+        self.assertEqual(row[:3], ("ready", "unknown", "ready"))
+        actual = json.loads(row[3])
+        self.assertEqual(actual, expected)
+        self.assertEqual(actual["ims"]["authentication"]["scheme"], "ims_aka")
+        self.assertEqual(actual["media"]["audio"]["codecs"][0]["name"], "EVS")
+        self.assertTrue(actual["services"]["vilte"])
+        self.assertEqual(
+            actual["access"]["vowifi"]["ike"]["eap_method"], "eap_aka"
+        )
 
-        accesses = self.db.execute(
-            "SELECT access_kind FROM v_access_catalog ORDER BY access_kind"
-        ).fetchall()
-        self.assertEqual(accesses, [("lte_epc",), ("wifi_epdg",)])
+    def test_invalid_json_and_readiness_values_are_rejected(self) -> None:
+        self.db.execute(
+            "INSERT INTO carriers(carrier_id, canonical_name) VALUES ('x', 'x')"
+        )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(
+                """INSERT INTO carrier_profiles(
+                       profile_id, carrier_id, display_name, config_json
+                   ) VALUES ('bad-json', 'x', 'bad', 'not-json')"""
+            )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(
+                """INSERT INTO carrier_profiles(
+                       profile_id, carrier_id, display_name, lte_ims_status,
+                       config_json
+                   ) VALUES ('bad-status', 'x', 'bad', 'complete', '{}')"""
+            )
 
     def test_icon_manifest_points_to_existing_neutral_badges(self) -> None:
         manifest = json.loads(
@@ -146,160 +229,8 @@ class SchemaTests(unittest.TestCase):
             self.assertFalse(asset["official"])
             path = ROOT / asset["path"]
             self.assertTrue(path.is_file())
-            self.assertEqual(
-                hashlib.sha256(path.read_bytes()).hexdigest(), asset["sha256"]
-            )
-            root = ET.parse(path).getroot()
-            self.assertEqual(root.attrib["viewBox"], "0 0 64 64")
-
-    def test_access_specific_sip_and_identity_templates(self) -> None:
-        self.db.execute(
-            "INSERT INTO carrier_profiles(profile_id, display_name) VALUES ('example', 'Example')"
-        )
-        self.db.execute(
-            """INSERT INTO access_configs(
-                   profile_id, access_kind, apn_dnn, ip_family
-               ) VALUES ('example', 'lte_epc', 'ims', 'ipv4v6')"""
-        )
-        self.db.execute(
-            """INSERT INTO access_configs(
-                   profile_id, access_kind, apn_dnn, ip_family
-               ) VALUES ('example', 'nr_5gc', 'ims', 'ipv4v6')"""
-        )
-        self.db.execute(
-            """INSERT INTO access_configs(
-                   profile_id, access_kind, apn_dnn, ip_family
-               ) VALUES ('example', 'wifi_epdg', 'ims', 'ipv4v6')"""
-        )
-        wifi_access = self.db.execute("SELECT last_insert_rowid()").fetchone()[0]
-        self.db.execute(
-            """INSERT INTO ims_configs(
-                   profile_id, home_domain, realm, private_identity_source,
-                   public_identity_source
-               ) VALUES ('example', ?, ?, 'auto', 'auto')""",
-            (
-                "ims.mnc260.mcc310.3gppnetwork.org",
-                "ims.mnc260.mcc310.3gppnetwork.org",
-            ),
-        )
-        self.db.execute(
-            """INSERT INTO ims_identity_templates(
-                   profile_id, role, source_policy, identity_type,
-                   value_template, use_when, required
-               ) VALUES ('example', 'impi', 'derived_imsi', 'nai', ?,
-                         'if_isim_missing', 1)""",
-            ("{imsi}@ims.mnc{mnc3}.mcc{mcc}.3gppnetwork.org",),
-        )
-        self.db.execute(
-            """INSERT INTO ims_identity_templates(
-                   profile_id, role, source_policy, identity_type,
-                   value_template, use_when, required
-               ) VALUES ('example', 'impu', 'derived_imsi', 'sip_uri', ?,
-                         'if_isim_missing', 1)""",
-            ("sip:{imsi}@ims.mnc{mnc3}.mcc{mcc}.3gppnetwork.org",),
-        )
-        self.db.execute(
-            """INSERT INTO sip_register_configs(
-                   profile_id, scope, request_uri_policy,
-                   requested_expires_seconds, contact_mode
-               ) VALUES ('example', 'common', 'home_domain', 3600, 'standard')"""
-        )
-        common_register = self.db.execute("SELECT last_insert_rowid()").fetchone()[0]
-        self.db.execute(
-            """INSERT INTO sip_register_configs(
-                   profile_id, access_id, parent_register_config_id, scope,
-                   requested_expires_seconds, access_network_info_template
-               ) VALUES ('example', ?, ?, 'access', 600, ?)""",
-            (wifi_access, common_register, "IEEE-802.11;i-wlan-node-id={bssid}"),
-        )
-        wifi_register = self.db.execute("SELECT last_insert_rowid()").fetchone()[0]
-        self.db.execute(
-            """INSERT INTO sip_header_rules(
-                   register_config_id, phase, position, header_name, action,
-                   value_template, required
-               ) VALUES (?, 'authenticated', 0, 'P-Access-Network-Info',
-                         'replace', ?, 1)""",
-            (wifi_register, "IEEE-802.11;i-wlan-node-id={bssid}"),
-        )
-        self.db.execute(
-            """INSERT INTO sip_header_rules(
-                   register_config_id, phase, position, header_name, action
-               ) VALUES (?, 'all', 0, 'P-Visited-Network-ID', 'omit')""",
-            (wifi_register,),
-        )
-        self.db.execute(
-            """INSERT INTO sip_contact_parameters(
-                   register_config_id, position, name, value_template, required
-               ) VALUES (?, 0, '+g.3gpp.accesstype', 'IEEE-802.11', 1)""",
-            (wifi_register,),
-        )
-        self.db.execute(
-            """INSERT INTO sip_security_mechanisms(
-                   register_config_id, position, integrity_algorithm,
-                   encryption_algorithm, protocol, mode, required
-               ) VALUES (?, 0, 'hmac-sha-1-96', 'aes-cbc', 'esp', 'trans', 1)""",
-            (wifi_register,),
-        )
-        self.db.execute(
-            "INSERT INTO ike_configs(access_id, eap_method) VALUES (?, 'eap_aka')",
-            (wifi_access,),
-        )
-        self.db.execute(
-            """INSERT INTO ike_identity_rules(
-                   access_id, role, identity_type, source_policy,
-                   value_template, send_policy, required
-               ) VALUES (?, 'idi', 'nai', 'derived_imsi', ?, 'always', 1)""",
-            (
-                wifi_access,
-                "0{imsi}@nai.epc.mnc{mnc3}.mcc{mcc}.3gppnetwork.org",
-            ),
-        )
-        self.db.execute(
-            """INSERT INTO ike_identity_rules(
-                   access_id, role, identity_type, source_policy,
-                   value_template, send_policy
-               ) VALUES (?, 'idr', 'id_fqdn', 'epdg_fqdn',
-                         '{epdg_fqdn}', 'on_request')""",
-            (wifi_access,),
-        )
-
-        resolved = self.db.execute(
-            """SELECT access_kind, requested_expires_seconds, contact_mode,
-                      access_network_info_template
-               FROM v_sip_register_catalog
-               WHERE register_config_id = ?""",
-            (wifi_register,),
-        ).fetchone()
-        self.assertEqual(
-            resolved,
-            (
-                "wifi_epdg",
-                600,
-                "standard",
-                "IEEE-802.11;i-wlan-node-id={bssid}",
-            ),
-        )
-        self.assertEqual(
-            self.db.execute(
-                "SELECT count(*) FROM ims_identity_templates WHERE profile_id = 'example'"
-            ).fetchone()[0],
-            2,
-        )
-        self.assertEqual(
-            self.db.execute(
-                "SELECT count(*) FROM ike_identity_rules WHERE access_id = ?",
-                (wifi_access,),
-            ).fetchone()[0],
-            2,
-        )
-
-        with self.assertRaises(sqlite3.IntegrityError):
-            self.db.execute(
-                """INSERT INTO sip_header_rules(
-                       register_config_id, phase, position, header_name, action
-                   ) VALUES (?, 'refresh', 0, 'Supported', 'add')""",
-                (wifi_register,),
-            )
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), asset["sha256"])
+            self.assertEqual(ET.parse(path).getroot().attrib["viewBox"], "0 0 64 64")
 
     def test_icon_packager_embeds_and_links_operator_icons(self) -> None:
         png = base64.b64decode(
@@ -333,7 +264,6 @@ icon_scope = "worldwide"
             )
             (source / "icons/worldwide/t-mobile.png").write_bytes(png)
             (source / "icons/worldwide/metro.png").write_bytes(png)
-
             subprocess.run(
                 [
                     sys.executable,
@@ -352,15 +282,16 @@ icon_scope = "worldwide"
                            carrier_id, canonical_name, brand_name, country_iso2
                        ) VALUES ('us-t-mobile', 'T-Mobile USA', 'T-Mobile', 'US')"""
                 )
-                connection.execute(
-                    """INSERT INTO plmns(
-                           plmn, carrier_id, mcc, mnc, mnc_length, country_iso2
-                       ) VALUES ('310260', 'us-t-mobile', '310', '260', 3, 'US')"""
+                config, status = finalized_config(
+                    {"protocol_baseline": CONFIG_CONTRACT, "services": {}}
                 )
                 connection.execute(
                     """INSERT INTO carrier_profiles(
-                           profile_id, carrier_id, display_name
-                       ) VALUES ('us-metro', 'us-t-mobile', 'Metro')"""
+                           profile_id, carrier_id, display_name,
+                           lte_ims_status, nr_ims_status, vowifi_status,
+                           config_json
+                       ) VALUES ('us-metro', 'us-t-mobile', 'Metro', ?, ?, ?, ?)""",
+                    (status["lte"], status["nr"], status["vowifi"], config),
                 )
                 connection.execute(
                     """INSERT INTO profile_match_rules(
@@ -377,7 +308,6 @@ icon_scope = "worldwide"
             self.assertEqual(result.assets_embedded, 2)
             self.assertEqual(result.carriers_linked, 1)
             self.assertEqual(result.profiles_linked, 1)
-
             repeated = package_database(
                 database,
                 source_base_url=source.resolve().as_uri(),
@@ -388,26 +318,20 @@ icon_scope = "worldwide"
             with closing(sqlite3.connect(database)) as connection:
                 carrier_asset, profile_asset = connection.execute(
                     """SELECT c.primary_asset_id, cp.profile_asset_id
-                       FROM carriers AS c
-                       JOIN carrier_profiles AS cp
-                         ON cp.carrier_id = c.carrier_id
+                       FROM carriers AS c JOIN carrier_profiles AS cp USING(carrier_id)
                        WHERE cp.profile_id = 'us-metro'"""
                 ).fetchone()
-                self.assertEqual(
-                    carrier_asset, "operator-icons:worldwide/t-mobile"
-                )
-                self.assertEqual(
-                    profile_asset, "operator-icons:worldwide/metro"
-                )
+                self.assertEqual(carrier_asset, "operator-icons:worldwide/t-mobile")
+                self.assertEqual(profile_asset, "operator-icons:worldwide/metro")
                 embedded = connection.execute(
-                    """SELECT media_type, asset_data
-                       FROM v_visual_asset_catalog WHERE asset_id = ?""",
+                    """SELECT media_type, asset_data FROM v_visual_asset_catalog
+                       WHERE asset_id = ?""",
                     (profile_asset,),
                 ).fetchone()
                 self.assertEqual(embedded, ("image/png", png))
                 self.assertEqual(
                     connection.execute(
-                        """SELECT count(*) FROM source_snapshots
+                        """SELECT count(*) FROM source_artifacts
                            WHERE parser_name = 'icons/package_icons.py'"""
                     ).fetchone()[0],
                     2,
@@ -447,9 +371,7 @@ icon_scope = "worldwide"
             uri = f"{database.resolve().as_uri()}?mode=ro&immutable=1"
             with closing(sqlite3.connect(uri, uri=True)) as readonly:
                 self.assertEqual(
-                    readonly.execute(
-                        "SELECT sealed FROM catalog_release"
-                    ).fetchone()[0],
+                    readonly.execute("SELECT sealed FROM catalog_metadata").fetchone()[0],
                     1,
                 )
                 with self.assertRaises(sqlite3.OperationalError):

@@ -38,15 +38,9 @@ Qualcomm MCFG/MBN、MediaTek 配置、Exynos/Shannon 配置分别建适配器。
 
 | Android 信息 | 主 schema |
 |---|---|
-| 工厂镜像、设备、构建与 baseband 版本 | `source_snapshots` |
-| MCC/MNC、carrier id、SPN/GID | `carriers`、`plmns`、`profile_match_rules` |
-| IMS APN/DNN、协议、漫游协议 | `access_configs` |
-| LTE PCO / 5G EPCO / DHCP / DNS | `pcscf_discovery_methods` |
-| ePDG、N3IWF、P-CSCF、BSF | `network_endpoints` |
-| IKE/EAP-AKA/ESP 与 IDi/IDr 静态要求 | `ike_configs`、`ike_identity_rules`、`crypto_proposals` |
-| IMS 身份模板 | `ims_configs`、`ims_identity_templates` |
-| LTE/5G/VoWiFi REGISTER 静态策略 | `sip_register_configs`、Header/Contact/Security 子表 |
-| VoLTE/VoNR/VoWiFi/SMS 能力 | `service_capabilities` |
+| 工厂镜像、配置文件和解析证据 | `source_artifacts`、`profile_sources`、`field_evidence` |
+| MCC/MNC、SPN/GID 和公开前缀 | `carriers`、`profile_match_rules` |
+| LTE/5G/VoWiFi、ePDG、IKE、SIP、媒体和服务能力 | `carrier_profiles.config_json` |
 
 普通运行日志、SIM 身份、线路绑定和注册结果属于使用方项目，禁止写入此只读目录。
 

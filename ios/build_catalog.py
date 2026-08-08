@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""Build a sealed catalog from the pinned iPhone 16 Pro Apple IPSW."""
+"""Build a sealed catalog from a discovered or pinned Apple IPSW."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import re
-import sqlite3
 import subprocess
 import sys
-from contextlib import closing
 from dataclasses import asdict
 from pathlib import Path
 
@@ -29,10 +27,12 @@ from ios.firmware import (  # noqa: E402
     extract_remote_outer_files,
     mounted_apfs,
 )
-from ios.sources import IPHONE_16_PRO_26_6, inspect_build_manifest  # noqa: E402
-
-
-DEVICE_CLASS = "D93"
+from ios.sources import (  # noqa: E402
+    IPHONE_16_PRO_26_6,
+    PRODUCT_DEVICE_CLASSES,
+    inspect_build_manifest,
+    resolve_ipsw_artifact,
+)
 
 
 def _slug(value: str) -> str:
@@ -48,6 +48,19 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--baseband", type=Path, help="optional extracted .bbfw path")
     parser.add_argument("--ipsw", type=Path, help="optional complete local IPSW")
+    parser.add_argument(
+        "--product-type",
+        help="Apple product type to discover (for example iPhone17,2 for 16 Pro Max)",
+    )
+    parser.add_argument(
+        "--version",
+        default="latest",
+        help="exact iOS version/build or latest when discovering an IPSW",
+    )
+    parser.add_argument(
+        "--device-class",
+        help="carrier-bundle device class; defaults to the known product mapping",
+    )
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--workers", type=int, default=8)
@@ -73,20 +86,6 @@ def _run_tool(*arguments: str) -> None:
     subprocess.run([sys.executable, *arguments], cwd=ROOT, check=True)
 
 
-def _label_release(database: Path) -> None:
-    artifact = IPHONE_16_PRO_26_6
-    notes = (
-        f"Apple {artifact.device_name} ({artifact.product_type}, {DEVICE_CLASS}) IPSW; "
-        f"iOS {artifact.os_version}; build {artifact.build_id}; "
-        f"baseband {artifact.baseband_version}."
-    )
-    with closing(sqlite3.connect(database)) as connection, connection:
-        connection.execute(
-            "UPDATE catalog_release SET notes = ? WHERE singleton = 1", (notes,)
-        )
-        connection.commit()
-
-
 def _find_outer_file(outer: Path, name: str) -> Path | None:
     matches = list(outer.rglob(name))
     if len(matches) > 1:
@@ -94,13 +93,14 @@ def _find_outer_file(outer: Path, name: str) -> Path | None:
     return matches[0] if matches else None
 
 
-def _acquire_bundles(args: argparse.Namespace, work_dir: Path) -> tuple[Path, Path | None]:
+def _acquire_bundles(
+    args: argparse.Namespace, work_dir: Path, artifact
+) -> tuple[Path, Path | None]:
     if args.bundle_root is not None:
         if not args.bundle_root.is_dir():
             raise ValueError(f"bundle root does not exist: {args.bundle_root}")
         return args.bundle_root.resolve(), args.baseband.resolve() if args.baseband else None
 
-    artifact = IPHONE_16_PRO_26_6
     tool_root = ROOT / "data" / "tmp" / "tools"
     ipsw_tool = ensure_ipsw_tool(tool_root)
     outer = work_dir / "outer"
@@ -136,9 +136,19 @@ def _acquire_bundles(args: argparse.Namespace, work_dir: Path) -> tuple[Path, Pa
 
 def main() -> None:
     args = _parse_args()
-    artifact = IPHONE_16_PRO_26_6
+    if args.bundle_root is not None and args.product_type is None:
+        # Preserve the offline fixture/legacy command's pinned metadata.  A
+        # downloaded build always uses explicit discovery below.
+        artifact = IPHONE_16_PRO_26_6
+    else:
+        try:
+            artifact = resolve_ipsw_artifact(
+                args.product_type or "iPhone17,2", args.version
+            )
+        except (OSError, RuntimeError, ValueError) as error:
+            raise SystemExit(f"cannot resolve Apple IPSW metadata: {error}") from error
     work_dir = args.work_dir or (
-        ROOT / "data" / "tmp" / "ios" / "iphone16pro-23g71"
+        ROOT / "data" / "tmp" / "ios" / f"{_slug(artifact.product_type)}-{_slug(artifact.build_id)}"
     )
     output = args.output or (
         ROOT
@@ -158,30 +168,29 @@ def main() -> None:
         )
 
     try:
-        extracted_root, baseband = _acquire_bundles(args, work_dir.resolve())
+        extracted_root, baseband = _acquire_bundles(args, work_dir.resolve(), artifact)
     except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
         raise SystemExit(f"cannot extract iPhone Carrier Bundles: {error}") from error
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    release_id = (
-        f"ios-{_slug(artifact.product_type)}-{_slug(artifact.build_id)}-"
-        f"{_slug(artifact.baseband_version or 'unknown-baseband')}"
-    )
+    release_id = f"catalog-{(artifact.sha256 or _slug(artifact.build_id))[:16]}"
     _run_tool(
         str(ROOT / "tools" / "init_db.py"),
         str(building),
         "--release-id",
         release_id,
+        "--generator-name",
+        "carrier-bundles",
         "--generator-version",
         f"ios {PARSER_VERSION}",
     )
-    _label_release(building)
     try:
         stats = import_ios_catalog(
             building,
             extracted_root,
             artifact=artifact,
-            device_class=DEVICE_CLASS,
+            device_class=args.device_class
+            or PRODUCT_DEVICE_CLASSES.get(artifact.product_type, "UNKNOWN"),
             baseband_path=baseband,
             include_standard_derived=not args.no_standard_derived,
         )
@@ -201,7 +210,8 @@ def main() -> None:
             {
                 "database": str(output),
                 "device": artifact.product_type,
-                "device_class": DEVICE_CLASS,
+                "device_class": args.device_class
+                or PRODUCT_DEVICE_CLASSES.get(artifact.product_type, "UNKNOWN"),
                 "device_name": artifact.device_name,
                 "os_version": artifact.os_version,
                 "build_id": artifact.build_id,

@@ -1,4 +1,5 @@
 import sqlite3
+import json
 import tempfile
 import unittest
 from contextlib import closing
@@ -11,7 +12,7 @@ from android.pixel.catalog import import_pixel_catalog
 from android.pixel.firmware import ExtractedPixelFirmware
 from android.pixel.proto.carrier_list_pb2 import CarrierList
 from android.pixel.proto.carrier_settings_pb2 import ApnItem, MultiCarrierSettings
-from android.pixel.sources import parse_factory_page
+from android.pixel.sources import choose_latest_artifact, parse_factory_page
 
 
 class PixelSourceTests(unittest.TestCase):
@@ -32,6 +33,21 @@ class PixelSourceTests(unittest.TestCase):
         self.assertEqual(artifacts[0].device_name, "Pixel 5")
         self.assertEqual(artifacts[0].os_version, "14.0.0")
         self.assertEqual(artifacts[0].sha256, digest)
+
+    def test_latest_prefers_global_build_over_carrier_row(self) -> None:
+        digest = "b" * 64
+        html = f'''
+<h2 id="mustang">"mustang" for Pixel 10 Pro XL</h2>
+<table>
+  <tr><td>17.0.0 (CP2A.260805.005, Aug 2026)</td>
+      <td><a href="https://dl.google.com/dl/android/aosp/mustang-global-factory-aaaa1111.zip">Link</a></td>
+      <td>{digest}</td></tr>
+  <tr><td>17.0.0 (CP2A.260805.005.A1, Aug 2026) Rogers</td>
+      <td><a href="https://dl.google.com/dl/android/aosp/mustang-rogers-factory-bbbb2222.zip">Link</a></td>
+      <td>{digest}</td></tr>
+</table>'''
+        artifacts = parse_factory_page(html, "mustang")
+        self.assertEqual(choose_latest_artifact(artifacts).build_id, "CP2A.260805.005")
 
 
 class PixelCatalogTests(unittest.TestCase):
@@ -77,9 +93,11 @@ class PixelCatalogTests(unittest.TestCase):
             with closing(sqlite3.connect(database)) as connection:
                 connection.executescript((ROOT / "schema.sql").read_text(encoding="utf-8"))
                 connection.execute(
-                    """INSERT INTO catalog_release(
-                           singleton, release_id, generated_at, generator_version
-                       ) VALUES (1, 'pixel-test', '2026-08-07T00:00:00Z', 'test')"""
+                    """INSERT INTO catalog_metadata(
+                           singleton, release_id, generated_at, generator_name,
+                           generator_version
+                       ) VALUES (1, 'pixel-test', '2026-08-07T00:00:00Z',
+                                 'carrier-bundles', 'test')"""
                 )
                 connection.commit()
 
@@ -133,63 +151,46 @@ class PixelCatalogTests(unittest.TestCase):
             self.assertEqual(stats.mcfg_files_inventoried, 1)
 
             with closing(sqlite3.connect(database)) as connection:
-                raw_count, distinct_keys = connection.execute(
-                    """SELECT count(*), count(DISTINCT source_path || ':' || key_path)
-                       FROM raw_config_values
-                       WHERE source_path = 'etc/CarrierSettings/others.pb'"""
-                ).fetchone()
-                self.assertEqual(raw_count, distinct_keys)
-                raw_paths = [
-                    row[0]
-                    for row in connection.execute(
-                        """SELECT key_path FROM raw_config_values
-                           WHERE source_path = 'etc/CarrierSettings/others.pb'"""
+                rows = connection.execute(
+                    """SELECT profile_id, lte_ims_status, nr_ims_status,
+                              vowifi_status, config_json
+                       FROM carrier_profiles ORDER BY profile_id"""
+                ).fetchall()
+                self.assertEqual(len(rows), 2)
+                self.assertFalse(any("test-device" in row[0] for row in rows))
+                config = json.loads(rows[0][4])
+                self.assertEqual(config["ims"]["transport"], "tls")
+                self.assertEqual(
+                    config["access"]["lte"],
+                    {
+                        "apn": "ims",
+                        "auth_type": "pap",
+                        "ip_family": "ipv4v6",
+                        "mtu": 1420,
+                        "password": "public-apn-password",
+                        "pcscf_discovery": ["pco", "epco"],
+                        "roaming_ip_family": "ipv6",
+                        "username": "public-apn-user",
+                    },
+                )
+                self.assertEqual(rows[0][1:4], ("ready", "ready", "partial"))
+                match_columns = {
+                    row[1]
+                    for row in connection.execute("PRAGMA table_info(profile_match_rules)")
+                }
+                source_columns = {
+                    row[1]
+                    for row in connection.execute("PRAGMA table_info(source_artifacts)")
+                }
+                self.assertNotIn("device_model_pattern", match_columns)
+                self.assertTrue(
+                    {"platform", "device_model", "os_version", "build_id"}.isdisjoint(
+                        source_columns
                     )
-                ]
-                self.assertTrue(any('settings["alpha_us"]' in path for path in raw_paths))
-                self.assertTrue(any('settings["beta_gb"]' in path for path in raw_paths))
-
-                self.assertEqual(
-                    connection.execute(
-                        "SELECT DISTINCT device_model_pattern FROM profile_match_rules"
-                    ).fetchall(),
-                    [("test-device",)],
                 )
-                self.assertEqual(
-                    connection.execute(
-                        """SELECT platform, vendor FROM source_snapshots
-                           WHERE source_kind = 'standards_reference'"""
-                    ).fetchone(),
-                    ("shared", "3GPP"),
-                )
-                self.assertEqual(
-                    connection.execute(
-                        """SELECT platform, vendor FROM source_snapshots
-                           WHERE source_kind = 'qualcomm_mcfg'"""
-                    ).fetchone(),
-                    ("modem", "Qualcomm"),
-                )
-                self.assertEqual(
-                    connection.execute(
-                        "SELECT DISTINCT transport_preference FROM ims_configs"
-                    ).fetchall(),
-                    [("tls",)],
-                )
-                self.assertEqual(
-                    connection.execute(
-                        """SELECT apn_auth_type, apn_username, apn_password,
-                                  ip_family, roaming_ip_family, mtu
-                           FROM access_configs WHERE access_kind = 'lte_epc'
-                           LIMIT 1"""
-                    ).fetchone(),
-                    (
-                        "pap",
-                        "public-apn-user",
-                        "public-apn-password",
-                        "ipv4v6",
-                        "ipv6",
-                        1420,
-                    ),
+                self.assertGreater(
+                    connection.execute("SELECT count(*) FROM field_evidence").fetchone()[0],
+                    0,
                 )
                 self.assertIsNone(
                     connection.execute("PRAGMA foreign_key_check").fetchone()

@@ -31,7 +31,7 @@ iOS/Android 可以使用不同解析器，但最终必须映射到根目录 [`sc
 - LTE、5G、VoWiFi 各自的 SIP Header/Contact/Security-Client 覆盖，以及 IKE IDi/IDr 模板。
 - VoLTE、VoNR、VoWiFi、SMS over IMS、entitlement 与紧急服务能力。
 - 运营商 badge/logo 的数据库 BLOB、远端来源、哈希、许可和 attribution。
-- 白名单化的厂商原始静态键及字段级证据。
+- 经过语义确认的厂商静态键及字段级证据；未确认的键只留在构建诊断 sidecar。
 
 不保存具体 IMSI、ICCID、MSISDN、IMEI、IMPI/IMPU、Ki、OP/OPc、AKA 响应、会话密钥、线路绑定或注册结果。
 
@@ -54,15 +54,9 @@ python3 tools/seal_db.py data/carrier-bundles-2026.08.07.sqlite3
 file:carrier-bundles-2026.08.07.sqlite3?mode=ro&immutable=1
 ```
 
-推荐从以下稳定视图读取：
+推荐从 `v_profile_catalog` 读取运营商、匹配规则和完整 `config_json`；需要显示图标时按 `asset_id` 查询 `v_visual_asset_catalog`。
 
-- `v_carrier_catalog`：运营商、PLMN、图标和共享 IMS 配置。
-- `v_visual_asset_catalog`：按 `asset_id` 读取已经打进 SQLite 的 PNG/SVG BLOB。
-- `v_access_catalog`：LTE、5G、ePDG、N3IWF 接入配置。
-- `v_endpoint_catalog`：ePDG、P-CSCF、registrar、entitlement 等端点。
-- `v_sip_register_catalog`：合并公共配置后的 LTE、5G、VoWiFi REGISTER 标量配置。
-
-详细设计见 [`docs/配置要点与数据库设计.md`](./docs/配置要点与数据库设计.md)，平台输出规则见 [`docs/适配器契约.md`](./docs/适配器契约.md)，身份/Header 占位符见 [`docs/模板变量.md`](./docs/模板变量.md)。
+schema v7 的详细设计见 [`docs/数据库设计.md`](./docs/数据库设计.md)，平台输出规则见 [`docs/适配器契约.md`](./docs/适配器契约.md)，身份/Header 占位符见 [`docs/模板变量.md`](./docs/模板变量.md)。根目录 `schema.sql` 和 `config.schema.json` 是当前唯一查询/JSON 契约。
 
 提取器的实现顺序、上游项目选择和每阶段交付边界见 [`docs/提取器路线图.md`](./docs/提取器路线图.md)。当前确定的主线是 Pixel 官方固件 -> iOS 官方 IPSW/Carrier Bundle -> Samsung AP/CSC/IMSService -> 独立 modem 适配器；三方 ROM 只作辅助证据。
 
@@ -72,8 +66,8 @@ Pixel 提取器已经可以自动解析 Google 官方 Factory Image、生成 cat
 
 ```bash
 python3 android/pixel/build_catalog.py \
-  --device redfin \
-  --build-id UP1A.231105.001.B2 \
+  --device mustang \
+  --build-id CP2A.260805.005 \
   --accept-google-terms
 ```
 
@@ -81,10 +75,10 @@ python3 android/pixel/build_catalog.py \
 
 ## iOS 自动构建
 
-iOS 提取器固定从 iPhone 16 Pro (`iPhone17,1`) iOS 26.6 `23G71` 官方 IPSW 获取 Carrier/Country Bundle，归一化配置、打包图标并封存：
+iOS 提取器默认通过 ipsw.me 发现最新的 iPhone 16 Pro Max (`iPhone17,2`) 官方 Apple CDN IPSW，也支持固定版本和多个 Pro Max 代际：
 
 ```bash
-python3 ios/build_catalog.py
+python3 ios/build_catalog.py --product-type iPhone17,2 --version latest
 ```
 
 下载和 APFS 提取已完成后，可以直接复用导出的 bundle 目录，不再下载约 8 GiB 的 RootFS 成员：
@@ -102,23 +96,23 @@ python3 ios/build_catalog.py \
 仓库包含两条线上流程：
 
 - `CI`：每次 push/PR 自动在 Python 3.11 和 3.13 上执行语法检查及全部单元测试。
-- `Build Pixel catalog`：从 GitHub 的 **Actions -> Build Pixel catalog -> Run workflow** 手动选择设备代号、机型名称和官方 build，生成已封存的 SQLite，并以 artifact 保留 14 天。
+- `Build catalog set`：从 GitHub Actions 一次构建 Pixel 和多个 iPhone Pro Max catalog；每份 SQLite 保持独立，并同时上传 summary 与 `SHA256SUMS`。
 
 Pixel 在线构建必须先阅读 [Google Factory Images 条款](https://developers.google.com/android/images)，并在手动表单中确认接受。Factory ZIP、解包镜像和缓存只存在于临时 runner，不会进入 artifact；artifact 只包含最终 SQLite 和 `catalog-summary.json`。建议正式发布固定 `build_id`，不要使用 `latest`。
 
-GitHub 托管 runner 暂不执行 iOS 全量提取。iOS 规范化和数据库构建已经完成，但 iPhone 16 Pro 路线需要下载约 8 GiB 的根文件系统 AEA、解密约 9 GiB 的 APFS 并使用 FUSE；后续应在有明确磁盘容量和 `/dev/fuse` 权限的 self-hosted runner 上自动化。常规 CI 仍会测试 iOS 解析器，已在本地封存并验证的 iOS catalog 可通过发布工作流上传。
+iOS 全量提取需要下载大体积 AEA、解密 APFS 并使用 FUSE；`Build catalog set` 默认使用带 `ios-extractor` 标签的 self-hosted runner，避免在普通 runner 上因磁盘/FUSE 不足而产生半成品。常规 CI 仍只运行解析器和 fixture 测试。
 
 ## Release 发布
 
 GitHub Release 只接收已经由 `tools/seal_db.py` 封存、再由 `tools/verify_catalog.py` 验证的数据库。发布工作流使用临时 `release-staging/**` 分支传递制品，通过仓库内 `release-assets/manifest.json` 固定 tag、目标 commit、release 标题和说明；目标 commit 必须与远端 `main` 完全相同。Release 附件包括原始 `.sqlite3`、`catalog-summary.json` 和 `SHA256SUMS`。
 
-未完成的平台不会混入已完成数据的 release。Pixel 5 (`redfin`) Android 14 `UP1A.231105.001.B2` 和 iPhone 16 Pro (`iPhone17,1`) iOS 26.6 `23G71` 分别发布独立 catalog，避免不同设备和来源被静默合并。
+不同固件始终发布独立 catalog。Pixel 5 (`redfin`) 只作为归档，新的 Pixel 与各代 iPhone Pro Max 不会互相合并或补齐字段。
 
 ## iOS 验证基准
 
 首个 iOS 提取样本固定为 iPhone 16 Pro (`iPhone17,1`) 的 Apple 官方 IPSW：iOS 26.6、build `23G71`、baseband `Mav24-2.70.01`。选择该设备是为了覆盖 LTE、5G NSA/SA、VoWiFi 以及可能存在的 VoNR 配置维度；iPhone 8 不作为本项目的 iOS 基准。
 
-机型支持某项无线能力不代表 Carrier Bundle 一定公开该能力的完整注册参数。提取器只写入固件中能够验证语义的静态值，未发现的 VoNR、NR/5GC 或 SIP 字段保持 `NULL`/无记录。IPSW、设备、build 和 baseband 会记录到 `source_snapshots`，不同机型或系统版本不会被静默合并。
+机型支持某项无线能力不代表 Carrier Bundle 一定公开该能力的完整注册参数。提取器只写入固件中能够验证语义的静态值，未发现的 VoNR、NR/5GC 或 SIP 字段保持缺失。IPSW、设备、build 和 baseband 出现在构建摘要，不进入运行时匹配表。
 
 ## 图标
 
@@ -130,18 +124,18 @@ GitHub Release 只接收已经由 `tools/seal_db.py` 封存、再由 `tools/veri
 
 ```sql
 SELECT a.media_type, a.asset_data
-FROM v_carrier_catalog AS c
-JOIN v_visual_asset_catalog AS a USING (asset_id)
+FROM v_profile_catalog AS c
+JOIN v_visual_asset_catalog AS a ON a.asset_id = c.asset_id
 WHERE c.plmn = '310260';
 ```
 
 ## 当前状态
 
-- SQLite schema v6 已可初始化、查询、嵌入图标和只读封存；v6 新增了 Apple IKE DPD、NAT keepalive 和 ePDG 证书校验字段。
+- SQLite schema v7 已可初始化、查询、嵌入图标和只读封存；8 张物理表通过 `carrier_profiles.config_json` 覆盖 IMS、LTE、NR、VoWiFi、IKE、SIP、媒体、ViLTE、XCAP、entitlement 和 emergency 配置。
 - Pixel Factory Image 提取器已实现下载校验、sparse/ext4 解包、CarrierSettings 归一化、MCFG inventory 和一键构建。
 - NekokoLPA2 图标同步/打包器与首批 fallback badge 已建立。
-- Pixel 5 `redfin` Android 14 首个实测 catalog 包含 819 个 profile、2026 条 access 配置、117 个 MCFG inventory 和 115 个图标。
-- Pixel catalog 在文件名和数据库来源元数据中同时记录机型名称、设备代号、build 与 baseband，后续 Pixel 9+ 构建不会与 Pixel 5 数据混淆。
+- Pixel 5 `redfin` Android 14 catalog 仅作为历史归档；新的默认目标是 Google 官方 Pixel 10 Pro XL `mustang` 全球 Factory Image，区域 `.A1` 行不会被 `latest` 误选。
+- 设备、系统、build 和 baseband 只出现在构建摘要、日志和文件名，不进入运营商 profile 或运行时匹配表。
 - Qualcomm MCFG 内部语义、Pixel 6+ Tensor modem 和 Samsung 提取器仍待实现。
-- iOS I1/I2 已完成：iPhone 16 Pro (`iPhone17,1`) iOS 26.6 `23G71` catalog 包含 1915 个 profile、1857 条 access 配置、1218 条 IMS 配置、690 条 IKE 配置和 243 个图标。
+- iOS I1/I2 已完成：现有 iPhone 16 Pro 解析结果可复现；构建器现在可以发现并独立生成 iPhone 16 Pro Max、15 Pro Max 等多个代际 catalog。
 - iOS 构建已验证远端 ZIP64 单成员下载、AEA 解密、APFS 导出、D93 override/MVNO 合并、字段证据和只读封存；`.bbfw` 仍只做版本与哈希 inventory。

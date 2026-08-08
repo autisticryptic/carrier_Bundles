@@ -175,7 +175,10 @@ def _symlink_matches(bundle_root: Path) -> dict[str, list[IOSMatchRule]]:
 
 
 def load_carrier_bundle_variants(
-    bundle_root: Path, device_class: str
+    bundle_root: Path,
+    device_class: str,
+    *,
+    include_device_override: bool = False,
 ) -> list[CarrierBundleVariant]:
     """Load effective base and MVNO configurations for one device class."""
 
@@ -188,7 +191,9 @@ def load_carrier_bundle_variants(
             continue
         carrier = load_plist(carrier_path)
         info = load_plist(info_path)
-        override_path = _device_override(bundle, device_class)
+        override_path = (
+            _device_override(bundle, device_class) if include_device_override else None
+        )
         effective = carrier
         source_paths = [carrier_path.name]
         if override_path is not None:

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import plistlib
+import json
+import urllib.request
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,7 +18,7 @@ class IPSWArtifact:
     os_version: str
     build_id: str
     url: str
-    sha256: str
+    sha256: str | None
     size: int
     file_system_path: str | None = None
     baseband_path: str | None = None
@@ -42,6 +45,80 @@ IPHONE_16_PRO_26_6 = IPSWArtifact(
     baseband_path="Firmware/Mav24-2.70.01.Release.bbfw",
     baseband_version="Mav24-2.70.01",
 )
+
+# Product classes used by the modern Pro/Pro Max family.  Unknown classes are
+# valid too: the bundle parser simply skips a device-specific override it
+# cannot identify, while keeping the carrier-wide configuration.
+PRODUCT_DEVICE_CLASSES = {
+    "iPhone17,2": "D94",  # iPhone 16 Pro Max
+    "iPhone17,1": "D93",  # iPhone 16 Pro
+    "iPhone16,2": "D84",  # iPhone 15 Pro Max
+    "iPhone16,1": "D83",  # iPhone 15 Pro
+    "iPhone14,3": "D63",  # iPhone 13 Pro Max
+}
+PRODUCT_NAMES = {
+    "iPhone17,2": "iPhone 16 Pro Max",
+    "iPhone17,1": "iPhone 16 Pro",
+    "iPhone16,2": "iPhone 15 Pro Max",
+    "iPhone16,1": "iPhone 15 Pro",
+    "iPhone14,3": "iPhone 13 Pro Max",
+}
+IPSW_API_URL = "https://api.ipsw.me/v4/device/{product_type}?type=ipsw"
+
+
+def resolve_ipsw_artifact(
+    product_type: str = "iPhone17,2",
+    version: str = "latest",
+    *,
+    api_url: str = IPSW_API_URL,
+) -> IPSWArtifact:
+    """Discover a signed Pro Max IPSW through ipsw.me's public index.
+
+    The index is only a locator. The returned URL is the Apple CDN URL and is
+    later checked against the BuildManifest; no index data is written to the
+    catalog.  A caller can pin an exact version/build for reproducibility.
+    """
+
+    url = api_url.format(product_type=product_type)
+    request = urllib.request.Request(
+        url, headers={"User-Agent": "carrier-bundles-ios-extractor/0.3"}
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    rows = payload.get("firmwares", payload) if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        raise ValueError("ipsw.me response has no firmware list")
+    candidates = [
+        row for row in rows
+        if isinstance(row, dict)
+        and row.get("url")
+        and row.get("signed", True) is not False
+    ]
+    if version.casefold() != "latest":
+        candidates = [
+            row for row in candidates
+            if str(row.get("version", "")).casefold() == version.casefold()
+            or str(row.get("buildid", "")).casefold() == version.casefold()
+        ]
+    if not candidates:
+        raise RuntimeError(
+            f"no signed IPSW found for {product_type} version {version!r}"
+        )
+    candidates.sort(key=lambda row: str(row.get("releasedate", row.get("version", ""))))
+    row = candidates[-1]
+    sha256 = row.get("sha256")
+    if not isinstance(sha256, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", sha256):
+        sha256 = None
+    return IPSWArtifact(
+        device_name=str(row.get("name") or PRODUCT_NAMES.get(product_type, product_type)),
+        product_type=product_type,
+        os_version=str(row.get("version") or "unknown"),
+        build_id=str(row.get("buildid") or "unknown"),
+        url=str(row["url"]),
+        sha256=sha256,
+        size=int(row.get("filesize") or 0),
+        baseband_version=None,
+    )
 
 
 def _load_plist(path: Path) -> dict[str, Any]:
@@ -101,4 +178,3 @@ def inspect_build_manifest(path: Path, artifact: IPSWArtifact) -> IPSWArtifact:
             else None
         ),
     )
-

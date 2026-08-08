@@ -15,6 +15,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("database", type=Path)
     parser.add_argument("--release-id", required=True)
+    parser.add_argument("--generator-name", default="carrier-bundles")
     parser.add_argument("--generator-version", default="development")
     args = parser.parse_args()
 
@@ -26,12 +27,14 @@ def main() -> None:
     with closing(sqlite3.connect(args.database)) as connection, connection:
         connection.executescript(schema)
         connection.execute(
-            """INSERT INTO catalog_release(
-                   singleton, release_id, generated_at, generator_version, sealed
-               ) VALUES (1, ?, ?, ?, 0)""",
+            """INSERT INTO catalog_metadata(
+                   singleton, release_id, generated_at, generator_name,
+                   generator_version, sealed
+               ) VALUES (1, ?, ?, ?, ?, 0)""",
             (
                 args.release_id,
                 datetime.now(timezone.utc).isoformat(),
+                args.generator_name,
                 args.generator_version,
             ),
         )
