@@ -35,7 +35,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rom-url", default=XIAOMI_15_ULTRA_GLOBAL_OS3_0_301_0.url)
     parser.add_argument("--rom-md5", default=XIAOMI_15_ULTRA_GLOBAL_OS3_0_301_0.md5)
-    parser.add_argument("--rom-path", type=Path, help="local fastboot .tgz/.tar path")
+    parser.add_argument("--rom-path", type=Path, help="local firmware .zip or fastboot .tgz/.tar path")
     parser.add_argument("--device-name", default=XIAOMI_15_ULTRA_GLOBAL_OS3_0_301_0.device_name)
     parser.add_argument("--device", default=XIAOMI_15_ULTRA_GLOBAL_OS3_0_301_0.codename)
     parser.add_argument("--region", default=XIAOMI_15_ULTRA_GLOBAL_OS3_0_301_0.region)
@@ -52,6 +52,13 @@ def _run_tool(*arguments: str) -> None:
     subprocess.run([sys.executable, *arguments], cwd=ROOT, check=True)
 
 
+def _package_kind(*, rom_path: Path | None, rom_url: str) -> str:
+    value = str(rom_path or rom_url).casefold()
+    if value.endswith(".zip"):
+        return "firmware_zip"
+    return "fastboot_archive"
+
+
 def main() -> None:
     args = _parse_args()
     artifact = XiaomiFastbootArtifact(
@@ -62,6 +69,7 @@ def main() -> None:
         build_id=args.build_id,
         url=args.rom_url,
         md5=args.rom_md5 or None,
+        package_kind=_package_kind(rom_path=args.rom_path, rom_url=args.rom_url),
     )
     rom_path = args.rom_path or ROOT / "data" / "raw" / "xiaomi" / artifact.filename
     if args.rom_path is not None:
@@ -124,7 +132,7 @@ def main() -> None:
         json.dumps(
             {
                 "database": str(output),
-                "source_kind": "xiaomi_fastboot_baseband_inventory",
+                "source_kind": "xiaomi_firmware_baseband_inventory",
                 "device": artifact.codename,
                 "device_name": artifact.device_name,
                 "region": artifact.region,

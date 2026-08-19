@@ -1,4 +1,4 @@
-"""Pinned Xiaomi fastboot ROM metadata."""
+"""Pinned Xiaomi firmware package metadata."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ class XiaomiFastbootArtifact:
     build_id: str
     url: str
     md5: str | None
+    package_kind: str = "firmware_zip"
     size: int | None = None
 
     @property
@@ -29,10 +30,12 @@ XIAOMI_15_ULTRA_GLOBAL_OS3_0_301_0 = XiaomiFastbootArtifact(
     android_version="16",
     build_id="OS3.0.301.0.WOAMIXM",
     url=(
-        "https://bigota.d.miui.com/OS3.0.301.0.WOAMIXM/"
-        "xuanyuan_global_images_OS3.0.301.0.WOAMIXM_20260428.0000.00_16.0_global_"
-        "d98a2e098d.tgz"
+        "https://github.com/XiaomiFirmwareUpdaterReleases/firmware_xiaomi_xuanyuan/"
+        "releases/download/stable-12.05.2026/"
+        "fw_xuanyuan_xuanyuan_global-ota_full-OS3.0.301.0.WOAMIXM-user-16.0-"
+        "a67f21cbf3.zip"
     ),
-    md5=None,
-    size=11_805_403_314,
+    md5="f53a4b0b909e2977ce6f0a349ba5ea80",
+    package_kind="firmware_zip",
+    size=218_045_757,
 )

@@ -1,4 +1,4 @@
-"""Download and inventory modem-related files from Xiaomi fastboot ROMs."""
+"""Download and inventory modem-related files from Xiaomi firmware packages."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import shutil
 import sys
 import tarfile
 import urllib.request
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -199,14 +200,7 @@ def _write_inventory_manifest(
     )
 
 
-def extract_xiaomi_modem_artifacts(rom_path: Path, output_dir: Path) -> ExtractedXiaomiFirmware:
-    """Extract modem-related members from a Xiaomi fastboot tar/tgz archive."""
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    cached = _cached_inventory(rom_path, output_dir)
-    if cached is not None:
-        return cached
-
+def _extract_tar_modem_artifacts(rom_path: Path, output_dir: Path) -> list[XiaomiModemArtifact]:
     modem_artifacts: list[XiaomiModemArtifact] = []
     with tarfile.open(rom_path, mode="r:*") as archive:
         members = [
@@ -215,7 +209,7 @@ def extract_xiaomi_modem_artifacts(rom_path: Path, output_dir: Path) -> Extracte
             if member.isfile() and MODEM_MEMBER_RE.search(member.name)
         ]
         if not members:
-            raise RuntimeError("Xiaomi fastboot ROM contains no known modem artifacts")
+            raise RuntimeError("Xiaomi archive contains no known modem artifacts")
         seen_outputs: set[Path] = set()
         for member in sorted(members, key=lambda item: item.name.casefold()):
             output = _safe_member_output(output_dir, member.name)
@@ -237,6 +231,52 @@ def extract_xiaomi_modem_artifacts(rom_path: Path, output_dir: Path) -> Extracte
                     size=output.stat().st_size,
                 )
             )
+    return modem_artifacts
+
+
+def _extract_zip_modem_artifacts(rom_path: Path, output_dir: Path) -> list[XiaomiModemArtifact]:
+    modem_artifacts: list[XiaomiModemArtifact] = []
+    with zipfile.ZipFile(rom_path) as archive:
+        members = [
+            info
+            for info in archive.infolist()
+            if not info.is_dir() and MODEM_MEMBER_RE.search(info.filename)
+        ]
+        if not members:
+            raise RuntimeError("Xiaomi archive contains no known modem artifacts")
+        seen_outputs: set[Path] = set()
+        for info in sorted(members, key=lambda item: item.filename.casefold()):
+            output = _safe_member_output(output_dir, info.filename)
+            if output in seen_outputs:
+                output = output.with_name(f"{len(seen_outputs):02d}-{output.name}")
+            seen_outputs.add(output)
+            temporary = output.with_suffix(output.suffix + ".part")
+            with archive.open(info) as source, temporary.open("wb") as destination:
+                shutil.copyfileobj(source, destination, length=8 * 1024 * 1024)
+            temporary.replace(output)
+            modem_artifacts.append(
+                XiaomiModemArtifact(
+                    archive_member=info.filename,
+                    extracted_path=output,
+                    sha256=digest_file(output),
+                    size=output.stat().st_size,
+                )
+            )
+    return modem_artifacts
+
+
+def extract_xiaomi_modem_artifacts(rom_path: Path, output_dir: Path) -> ExtractedXiaomiFirmware:
+    """Extract modem-related members from a Xiaomi firmware ZIP or fastboot tar."""
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    cached = _cached_inventory(rom_path, output_dir)
+    if cached is not None:
+        return cached
+
+    if zipfile.is_zipfile(rom_path):
+        modem_artifacts = _extract_zip_modem_artifacts(rom_path, output_dir)
+    else:
+        modem_artifacts = _extract_tar_modem_artifacts(rom_path, output_dir)
 
     firmware = ExtractedXiaomiFirmware(
         rom_path=rom_path,

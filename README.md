@@ -105,7 +105,7 @@ python3 ios/build_catalog.py \
 
 ## Xiaomi 基带 inventory
 
-Xiaomi fastboot ROM 现在有独立的基带制品 inventory 构建器，默认固定到 Xiaomi 15 Ultra (`xuanyuan`) Global HyperOS `OS3.0.301.0.WOAMIXM` / Android 16 的官方 `bigota.d.miui.com` fastboot 包：
+Xiaomi firmware 包现在有独立的基带制品 inventory 构建器，默认固定到 XM Firmware Updater 从 Xiaomi 15 Ultra (`xuanyuan`) Global HyperOS `OS3.0.301.0.WOAMIXM` / Android 16 官方 ROM 提取出的 firmware-only ZIP。它由 GitHub Releases 托管，约 218MB，避免在 Actions 中下载 11.8GB fastboot 包：
 
 ```bash
 python3 android/xiaomi/build_baseband_catalog.py --skip-icon-sync
@@ -120,7 +120,7 @@ python3 android/xiaomi/build_baseband_catalog.py --skip-icon-sync
 仓库包含两条线上流程：
 
 - `CI`：每次 push/PR 自动在 Python 3.11 和 3.13 上执行语法检查及全部单元测试。
-- `Build catalog set`：分别构建 Pixel ROM、iPhone Pro Max IPSW、Apple 在线 IPCC catalog 和 Xiaomi fastboot 基带 inventory；每份 SQLite 保持独立，并同时上传 summary、manifest 与 `SHA256SUMS`。某个来源失败不会阻止其他成功数据库发布。
+- `Build catalog set`：分别构建 Pixel ROM、iPhone Pro Max IPSW、Apple 在线 IPCC catalog 和 Xiaomi firmware 基带 inventory；每份 SQLite 保持独立，并同时上传 summary、manifest 与 `SHA256SUMS`。某个来源失败不会阻止其他成功数据库发布。
 
 Release 中同一来源会在同一个 job 内连续生成带运营商图标的 `*-with-icons.sqlite3` 和不拉取图标的 `*-no-icons.sqlite3`，复用同一份 ROM/IPSW/IPCC 下载与解包缓存，不再为图标变体启动第二个 job。IPSW 数据库按实际手机型号和 iOS 版本命名，例如 `carrier-bundles-iphone16promax-26.6-with-icons.sqlite3`；Xiaomi 基带 inventory 使用 `carrier-bundles-xiaomi15ultra-xuanyuan-baseband-*.sqlite3`。
 

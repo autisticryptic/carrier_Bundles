@@ -27,14 +27,14 @@ on:
         default: v0.3.0-catalog-v7
         type: string
       xiaomi_rom_url:
-        description: Xiaomi fastboot ROM URL for baseband inventory
+        description: Xiaomi firmware ZIP or fastboot ROM URL for baseband inventory
         required: false
-        default: https://bigota.d.miui.com/OS3.0.301.0.WOAMIXM/xuanyuan_global_images_OS3.0.301.0.WOAMIXM_20260428.0000.00_16.0_global_d98a2e098d.tgz
+        default: https://github.com/XiaomiFirmwareUpdaterReleases/firmware_xiaomi_xuanyuan/releases/download/stable-12.05.2026/fw_xuanyuan_xuanyuan_global-ota_full-OS3.0.301.0.WOAMIXM-user-16.0-a67f21cbf3.zip
         type: string
       xiaomi_rom_md5:
-        description: Xiaomi fastboot ROM MD5; blank disables MD5 verification
+        description: Xiaomi firmware package MD5; blank disables MD5 verification
         required: false
-        default: ""
+        default: f53a4b0b909e2977ce6f0a349ba5ea80
         type: string
 
 permissions:
@@ -226,8 +226,8 @@ jobs:
             shift
             local output="$RUNNER_TEMP/carrier-bundles-xiaomi15ultra-xuanyuan-baseband-${suffix}.sqlite3"
             args=(
-              --rom-url "${{ inputs.xiaomi_rom_url || 'https://bigota.d.miui.com/OS3.0.301.0.WOAMIXM/xuanyuan_global_images_OS3.0.301.0.WOAMIXM_20260428.0000.00_16.0_global_d98a2e098d.tgz' }}"
-              --rom-md5 "${{ inputs.xiaomi_rom_md5 || '' }}"
+              --rom-url "${{ inputs.xiaomi_rom_url || 'https://github.com/XiaomiFirmwareUpdaterReleases/firmware_xiaomi_xuanyuan/releases/download/stable-12.05.2026/fw_xuanyuan_xuanyuan_global-ota_full-OS3.0.301.0.WOAMIXM-user-16.0-a67f21cbf3.zip' }}"
+              --rom-md5 "${{ inputs.xiaomi_rom_md5 || 'f53a4b0b909e2977ce6f0a349ba5ea80' }}"
               --output "$output"
               "$@"
             )

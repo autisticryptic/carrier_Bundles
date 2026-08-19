@@ -56,6 +56,7 @@ def import_xiaomi_baseband_catalog(
                 "android_version": artifact.android_version,
                 "build_id": artifact.build_id,
                 "md5": artifact.md5,
+                "package_kind": artifact.package_kind,
                 "members": len(firmware.modem_artifacts),
             },
             ensure_ascii=True,
@@ -86,6 +87,7 @@ def import_xiaomi_baseband_catalog(
                     "region": artifact.region,
                     "android_version": artifact.android_version,
                     "build_id": artifact.build_id,
+                    "package_kind": artifact.package_kind,
                     "size": item.size,
                 },
                 ensure_ascii=True,
@@ -108,12 +110,13 @@ def import_xiaomi_baseband_catalog(
             )
 
         notes = {
-            "source_kind": "xiaomi_fastboot_baseband_inventory",
+            "source_kind": "xiaomi_firmware_baseband_inventory",
             "device_name": artifact.device_name,
             "codename": artifact.codename,
             "region": artifact.region,
             "android_version": artifact.android_version,
             "build_id": artifact.build_id,
+            "package_kind": artifact.package_kind,
             "rom_sha256": firmware.rom_sha256,
             "modem_artifacts": [
                 _artifact_summary(item) for item in firmware.modem_artifacts

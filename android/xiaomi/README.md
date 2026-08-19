@@ -1,16 +1,19 @@
-# Xiaomi fastboot baseband inventory
+# Xiaomi firmware baseband inventory
 
 This extractor inventories modem-related artifacts from official Xiaomi
-fastboot ROM archives and stores the result in the root schema-v7 database.
+firmware ZIPs or fastboot ROM archives and stores the result in the root
+schema-v7 database.
 It does not decode Qualcomm/MediaTek modem internals and does not infer IMS,
 VoLTE, VoNR or VoWiFi runtime parameters from raw baseband firmware.
 
-Default pinned source:
+Default pinned source is XM Firmware Updater's firmware-only package, extracted
+from the official Xiaomi ROM and hosted on GitHub Releases:
 
 ```text
 Xiaomi 15 Ultra / xuanyuan / Global
 HyperOS OS3.0.301.0.WOAMIXM / Android 16
-https://bigota.d.miui.com/OS3.0.301.0.WOAMIXM/xuanyuan_global_images_OS3.0.301.0.WOAMIXM_20260428.0000.00_16.0_global_d98a2e098d.tgz
+https://github.com/XiaomiFirmwareUpdaterReleases/firmware_xiaomi_xuanyuan/releases/download/stable-12.05.2026/fw_xuanyuan_xuanyuan_global-ota_full-OS3.0.301.0.WOAMIXM-user-16.0-a67f21cbf3.zip
+MD5: f53a4b0b909e2977ce6f0a349ba5ea80
 ```
 
 Build:
@@ -19,11 +22,11 @@ Build:
 python3 android/xiaomi/build_baseband_catalog.py --skip-icon-sync
 ```
 
-Use a local fastboot archive:
+Use a local firmware ZIP or fastboot archive:
 
 ```bash
 python3 android/xiaomi/build_baseband_catalog.py \
-  --rom-path data/raw/xiaomi/xuanyuan_global_images_OS3.0.301.0.WOAMIXM_20260428.0000.00_16.0_global_d98a2e098d.tgz \
+  --rom-path data/raw/xiaomi/fw_xuanyuan_xuanyuan_global-ota_full-OS3.0.301.0.WOAMIXM-user-16.0-a67f21cbf3.zip \
   --device-name "Xiaomi 15 Ultra" \
   --device xuanyuan \
   --region Global \

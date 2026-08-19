@@ -6,6 +6,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+import zipfile
 from contextlib import closing
 from pathlib import Path
 
@@ -27,8 +28,23 @@ class XiaomiBasebandTests(unittest.TestCase):
     def test_extracts_and_imports_baseband_inventory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            rom = root / "xiaomi-fastboot.tgz"
-            with tarfile.open(rom, "w:gz") as archive:
+            rom = root / "xiaomi-firmware.zip"
+            with zipfile.ZipFile(rom, "w") as archive:
+                archive.writestr(
+                    "firmware-update/NON-HLOS.bin",
+                    b"public modem firmware",
+                )
+                archive.writestr(
+                    "firmware-update/dsp.img",
+                    b"public dsp firmware",
+                )
+                archive.writestr(
+                    "payload.bin",
+                    b"not part of the modem inventory",
+                )
+
+            tar_rom = root / "xiaomi-fastboot.tgz"
+            with tarfile.open(tar_rom, "w:gz") as archive:
                 self._add_member(
                     archive,
                     "xuanyuan_global_images/images/NON-HLOS.bin",
@@ -44,6 +60,8 @@ class XiaomiBasebandTests(unittest.TestCase):
                     "xuanyuan_global_images/images/super.img",
                     b"not part of the modem inventory",
                 )
+            tar_firmware = extract_xiaomi_modem_artifacts(tar_rom, root / "tar-extract")
+            self.assertEqual(len(tar_firmware.modem_artifacts), 2)
 
             firmware = extract_xiaomi_modem_artifacts(rom, root / "extract")
             self.assertEqual(
@@ -81,6 +99,7 @@ class XiaomiBasebandTests(unittest.TestCase):
                 build_id="OS3.0.301.0.WOAMIXM",
                 url="https://bigota.d.miui.com/example.tgz",
                 md5=None,
+                package_kind="firmware_zip",
             )
             stats = import_xiaomi_baseband_catalog(database, firmware, artifact=artifact)
             self.assertEqual(stats.modem_artifacts_imported, 2)
@@ -99,8 +118,8 @@ class XiaomiBasebandTests(unittest.TestCase):
                 self.assertEqual(
                     [revision["archive_member"] for revision in revisions],
                     [
-                        "xuanyuan_global_images/images/dsp.img",
-                        "xuanyuan_global_images/images/NON-HLOS.bin",
+                        "firmware-update/dsp.img",
+                        "firmware-update/NON-HLOS.bin",
                     ],
                 )
                 self.assertEqual(
