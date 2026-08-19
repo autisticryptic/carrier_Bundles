@@ -26,6 +26,16 @@ on:
         required: false
         default: v0.3.0-catalog-v7
         type: string
+      xiaomi_rom_url:
+        description: Xiaomi fastboot ROM URL for baseband inventory
+        required: false
+        default: https://bigota.d.miui.com/OS3.0.301.0.WOAMIXM/xuanyuan_global_images_OS3.0.301.0.WOAMIXM_20260428.0000.00_16.0_global_d98a2e098d.tgz
+        type: string
+      xiaomi_rom_md5:
+        description: Xiaomi fastboot ROM MD5; blank disables MD5 verification
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -36,6 +46,18 @@ concurrency:
 
 jobs:
   pixel:
+    name: Pixel 10 Pro XL / ${{ matrix.icon_variant }}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - icon_variant: with-icons
+            output_suffix: with-icons
+            skip_icon_sync: false
+          - icon_variant: no-icons
+            output_suffix: no-icons
+            skip_icon_sync: true
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     env:
@@ -58,28 +80,41 @@ jobs:
           df -h
       - name: Build Pixel 10 Pro XL catalog
         run: |
-          args=(--device mustang --device-name "Pixel 10 Pro XL" --build-id "${{ inputs.pixel_build_id || 'CP2A.260805.005' }}" --accept-google-terms --output "$RUNNER_TEMP/carrier-bundles-pixel-mustang.sqlite3")
+          output="$RUNNER_TEMP/carrier-bundles-pixel-mustang-${{ matrix.output_suffix }}.sqlite3"
+          args=(--device mustang --device-name "Pixel 10 Pro XL" --build-id "${{ inputs.pixel_build_id || 'CP2A.260805.005' }}" --accept-google-terms --output "$output")
+          if [[ "${{ matrix.skip_icon_sync }}" == "true" ]]; then
+            args+=(--skip-icon-sync)
+          fi
           set -o pipefail
-          python3 -u android/pixel/build_catalog.py "${args[@]}" --work-dir "$GITHUB_WORKSPACE/data/tmp/pixel/mustang" 2>&1 | tee "$RUNNER_TEMP/pixel-build.log"
-          python3 tools/verify_catalog.py "$RUNNER_TEMP/carrier-bundles-pixel-mustang.sqlite3" > "$RUNNER_TEMP/pixel-summary.json"
-          sha256sum "$RUNNER_TEMP/carrier-bundles-pixel-mustang.sqlite3" > "$RUNNER_TEMP/SHA256SUMS-pixel"
+          python3 -u android/pixel/build_catalog.py "${args[@]}" --work-dir "$GITHUB_WORKSPACE/data/tmp/pixel/mustang" 2>&1 | tee "$RUNNER_TEMP/pixel-${{ matrix.output_suffix }}-build.log"
+          python3 tools/verify_catalog.py "$output" > "$RUNNER_TEMP/pixel-${{ matrix.output_suffix }}-summary.json"
+          sha256sum "$output" > "$RUNNER_TEMP/SHA256SUMS-pixel-${{ matrix.output_suffix }}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: catalog-pixel-mustang
+          name: catalog-pixel-mustang-${{ matrix.output_suffix }}
           path: |
-            ${{ runner.temp }}/carrier-bundles-pixel-mustang.sqlite3
-            ${{ runner.temp }}/pixel-summary.json
-            ${{ runner.temp }}/SHA256SUMS-pixel
-            ${{ runner.temp }}/pixel-build.log
+            ${{ runner.temp }}/carrier-bundles-pixel-mustang-${{ matrix.output_suffix }}.sqlite3
+            ${{ runner.temp }}/pixel-${{ matrix.output_suffix }}-summary.json
+            ${{ runner.temp }}/SHA256SUMS-pixel-${{ matrix.output_suffix }}
+            ${{ runner.temp }}/pixel-${{ matrix.output_suffix }}-build.log
           compression-level: 0
           retention-days: 14
 
   ios:
-    name: iOS ${{ matrix.product_type }}
+    name: iOS ${{ matrix.product_type }} / ${{ matrix.icon_variant }}
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
-        product_type: ["iPhone17,2"]
+        include:
+          - product_type: "iPhone17,2"
+            icon_variant: with-icons
+            output_suffix: with-icons
+            skip_icon_sync: false
+          - product_type: "iPhone17,2"
+            icon_variant: no-icons
+            output_suffix: no-icons
+            skip_icon_sync: true
     # The complete build is intentionally performed by GitHub Actions. The
     # runner needs enough free disk for the IPSW/AEA/APFS temporary files.
     runs-on: macos-14
@@ -109,26 +144,42 @@ jobs:
           PY
           resolved_build=$(sed -n '1p' "$source_metadata")
           output_name=$(sed -n '2p' "$source_metadata")
+          output_name="${output_name%.sqlite3}-${{ matrix.output_suffix }}.sqlite3"
           output="$RUNNER_TEMP/$output_name"
           mkdir -p "$GITHUB_WORKSPACE/data/tmp/ios/${{ matrix.product_type }}"
-          python3 -u ios/build_catalog.py --product-type "${{ matrix.product_type }}" --version "$resolved_build" --work-dir "$GITHUB_WORKSPACE/data/tmp/ios/${{ matrix.product_type }}" --output "$output" 2>&1 | tee "$RUNNER_TEMP/${{ matrix.product_type }}-build.log"
-          python3 tools/verify_catalog.py "$output" > "$RUNNER_TEMP/${{ matrix.product_type }}-summary.json"
-          shasum -a 256 "$output" > "$RUNNER_TEMP/SHA256SUMS-${{ matrix.product_type }}"
+          args=(--product-type "${{ matrix.product_type }}" --version "$resolved_build" --work-dir "$GITHUB_WORKSPACE/data/tmp/ios/${{ matrix.product_type }}" --output "$output")
+          if [[ "${{ matrix.skip_icon_sync }}" == "true" ]]; then
+            args+=(--skip-icon-sync)
+          fi
+          python3 -u ios/build_catalog.py "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/${{ matrix.product_type }}-${{ matrix.output_suffix }}-build.log"
+          python3 tools/verify_catalog.py "$output" > "$RUNNER_TEMP/${{ matrix.product_type }}-${{ matrix.output_suffix }}-summary.json"
+          shasum -a 256 "$output" > "$RUNNER_TEMP/SHA256SUMS-${{ matrix.product_type }}-${{ matrix.output_suffix }}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: ${{ always() }}
         with:
-          name: catalog-${{ matrix.product_type }}
+          name: catalog-${{ matrix.product_type }}-${{ matrix.output_suffix }}
           path: |
             ${{ runner.temp }}/carrier-bundles-iphone*.sqlite3
-            ${{ runner.temp }}/${{ matrix.product_type }}-summary.json
-            ${{ runner.temp }}/SHA256SUMS-${{ matrix.product_type }}
-            ${{ runner.temp }}/${{ matrix.product_type }}-build.log
+            ${{ runner.temp }}/${{ matrix.product_type }}-${{ matrix.output_suffix }}-summary.json
+            ${{ runner.temp }}/SHA256SUMS-${{ matrix.product_type }}-${{ matrix.output_suffix }}
+            ${{ runner.temp }}/${{ matrix.product_type }}-${{ matrix.output_suffix }}-build.log
           if-no-files-found: ignore
           compression-level: 0
           retention-days: 14
 
   ipcc:
-    name: iOS Apple IPCC
+    name: iOS Apple IPCC / ${{ matrix.icon_variant }}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - icon_variant: with-icons
+            output_suffix: with-icons
+            skip_icon_sync: false
+          - icon_variant: no-icons
+            output_suffix: no-icons
+            skip_icon_sync: true
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
@@ -141,31 +192,86 @@ jobs:
       - name: Build and verify Apple IPCC catalog
         run: |
           set -o pipefail
-          output="$RUNNER_TEMP/carrier-bundles-ios-ipcc.sqlite3"
-          python3 -u ios/build_ipcc_catalog.py \
-            --workers 12 \
-            --work-dir "$GITHUB_WORKSPACE/data/tmp/ipcc-catalog" \
-            --output "$output" 2>&1 | tee "$RUNNER_TEMP/ipcc-build.log"
-          python3 tools/verify_catalog.py "$output" > "$RUNNER_TEMP/ipcc-summary.json"
-          cp "$GITHUB_WORKSPACE/data/tmp/ipcc-catalog/manifest.json" "$RUNNER_TEMP/ipcc-manifest.json"
-          sha256sum "$output" > "$RUNNER_TEMP/SHA256SUMS-ipcc"
+          output="$RUNNER_TEMP/carrier-bundles-ios-ipcc-${{ matrix.output_suffix }}.sqlite3"
+          args=(
+            --workers 12
+            --work-dir "$GITHUB_WORKSPACE/data/tmp/ipcc-catalog"
+            --output "$output"
+          )
+          if [[ "${{ matrix.skip_icon_sync }}" == "true" ]]; then
+            args+=(--skip-icon-sync)
+          fi
+          python3 -u ios/build_ipcc_catalog.py "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/ipcc-${{ matrix.output_suffix }}-build.log"
+          python3 tools/verify_catalog.py "$output" > "$RUNNER_TEMP/ipcc-${{ matrix.output_suffix }}-summary.json"
+          cp "$GITHUB_WORKSPACE/data/tmp/ipcc-catalog/manifest.json" "$RUNNER_TEMP/ipcc-${{ matrix.output_suffix }}-manifest.json"
+          sha256sum "$output" > "$RUNNER_TEMP/SHA256SUMS-ipcc-${{ matrix.output_suffix }}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: ${{ always() }}
         with:
-          name: catalog-ios-ipcc
+          name: catalog-ios-ipcc-${{ matrix.output_suffix }}
           path: |
-            ${{ runner.temp }}/carrier-bundles-ios-ipcc.sqlite3
-            ${{ runner.temp }}/ipcc-summary.json
-            ${{ runner.temp }}/ipcc-manifest.json
-            ${{ runner.temp }}/SHA256SUMS-ipcc
-            ${{ runner.temp }}/ipcc-build.log
+            ${{ runner.temp }}/carrier-bundles-ios-ipcc-${{ matrix.output_suffix }}.sqlite3
+            ${{ runner.temp }}/ipcc-${{ matrix.output_suffix }}-summary.json
+            ${{ runner.temp }}/ipcc-${{ matrix.output_suffix }}-manifest.json
+            ${{ runner.temp }}/SHA256SUMS-ipcc-${{ matrix.output_suffix }}
+            ${{ runner.temp }}/ipcc-${{ matrix.output_suffix }}-build.log
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 14
+
+  xiaomi:
+    name: Xiaomi 15 Ultra baseband / ${{ matrix.icon_variant }}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - icon_variant: with-icons
+            output_suffix: with-icons
+            skip_icon_sync: false
+          - icon_variant: no-icons
+            output_suffix: no-icons
+            skip_icon_sync: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Build and verify Xiaomi baseband catalog
+        run: |
+          set -o pipefail
+          output="$RUNNER_TEMP/carrier-bundles-xiaomi15ultra-xuanyuan-baseband-${{ matrix.output_suffix }}.sqlite3"
+          args=(
+            --rom-url "${{ inputs.xiaomi_rom_url || 'https://bigota.d.miui.com/OS3.0.301.0.WOAMIXM/xuanyuan_global_images_OS3.0.301.0.WOAMIXM_20260428.0000.00_16.0_global_d98a2e098d.tgz' }}"
+            --rom-md5 "${{ inputs.xiaomi_rom_md5 || '' }}"
+            --output "$output"
+          )
+          if [[ "${{ matrix.skip_icon_sync }}" == "true" ]]; then
+            args+=(--skip-icon-sync)
+          fi
+          python3 -u android/xiaomi/build_baseband_catalog.py "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/xiaomi-baseband-${{ matrix.output_suffix }}-build.log"
+          python3 tools/verify_catalog.py "$output" > "$RUNNER_TEMP/xiaomi-baseband-${{ matrix.output_suffix }}-summary.json"
+          sha256sum "$output" > "$RUNNER_TEMP/SHA256SUMS-xiaomi-baseband-${{ matrix.output_suffix }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
+        with:
+          name: catalog-xiaomi-baseband-${{ matrix.output_suffix }}
+          path: |
+            ${{ runner.temp }}/carrier-bundles-xiaomi15ultra-xuanyuan-baseband-${{ matrix.output_suffix }}.sqlite3
+            ${{ runner.temp }}/xiaomi-baseband-${{ matrix.output_suffix }}-summary.json
+            ${{ runner.temp }}/SHA256SUMS-xiaomi-baseband-${{ matrix.output_suffix }}
+            ${{ runner.temp }}/xiaomi-baseband-${{ matrix.output_suffix }}-build.log
           if-no-files-found: ignore
           compression-level: 0
           retention-days: 14
 
   aggregate:
-    needs: [pixel, ios, ipcc]
-    if: ${{ always() && (needs.pixel.result == 'success' || needs.ios.result == 'success' || needs.ipcc.result == 'success') }}
+    needs: [pixel, ios, ipcc, xiaomi]
+    if: ${{ always() && (needs.pixel.result == 'success' || needs.ios.result == 'success' || needs.ipcc.result == 'success' || needs.xiaomi.result == 'success') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -178,6 +284,7 @@ jobs:
           PIXEL_RESULT: ${{ needs.pixel.result }}
           IOS_IPSW_RESULT: ${{ needs.ios.result }}
           IOS_IPCC_RESULT: ${{ needs.ipcc.result }}
+          XIAOMI_BASEBAND_RESULT: ${{ needs.xiaomi.result }}
         run: |
           find catalog-set -type f -name '*.sqlite3' -print0 | sort -z | xargs -0 sha256sum > catalog-set/SHA256SUMS
           {
@@ -187,9 +294,10 @@ jobs:
             echo
             echo '| Source | Result |'
             echo '|---|---|'
-            echo "| Pixel 10 Pro XL ROM | $PIXEL_RESULT |"
-            echo "| iPhone 16 Pro Max IPSW | $IOS_IPSW_RESULT |"
-            echo "| Apple online IPCC index | $IOS_IPCC_RESULT |"
+            echo "| Pixel 10 Pro XL ROM (with-icons/no-icons) | $PIXEL_RESULT |"
+            echo "| iPhone 16 Pro Max IPSW (with-icons/no-icons) | $IOS_IPSW_RESULT |"
+            echo "| Apple online IPCC index (with-icons/no-icons) | $IOS_IPCC_RESULT |"
+            echo "| Xiaomi 15 Ultra fastboot baseband inventory (with-icons/no-icons) | $XIAOMI_BASEBAND_RESULT |"
             echo
             echo 'A failed source is not merged into another database; successful catalogs remain publishable.'
           } > catalog-set/BUILD_STATUS.md

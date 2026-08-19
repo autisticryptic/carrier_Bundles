@@ -26,11 +26,15 @@ Pixel 6 及后续多数设备不是 Qualcomm modem 路线，因此不得默认�
 
 第二阶段先解析 AP、CSC/OMC、`epdg_apns_conf.xml`、`imsservice.apk`、`optics`、`prism` 和 product/vendor 配置。CP/Exynos-Shannon modem 的深度逆向不作为 Samsung 首版的交付条件。
 
-### 3. Qualcomm 和其他 modem
+### 3. Xiaomi fastboot 基带 inventory
+
+Xiaomi 15 Ultra (`xuanyuan`) 官方 fastboot ROM 现在有独立 inventory 构建器：[`xiaomi`](./xiaomi/)。它只抽取并记录 `NON-HLOS.bin`、`modem*.img`、`dsp*.img` 等基带相关制品的来源、路径、大小和哈希，不解码 modem 内部语义，也不生成运营商 profile。后续 Qualcomm/MediaTek 语义适配器应在这份 inventory 基础上追加经过确认的字段证据。
+
+### 4. Qualcomm 和其他 modem
 
 Qualcomm MCFG/MBN、MediaTek 配置、Exynos/Shannon 配置分别建适配器。逆向工具输出必须保留工具版本、原始文件/键路径和置信度；含义未确认的字段不能直接写入规范列。
 
-### 4. 三方 ROM
+### 5. 三方 ROM
 
 三方 ROM 仅用于比较 AOSP CarrierConfig/APN、定位文件和构造公开测试 fixture。它通常不包含完整原厂 IMSService、ePDG 和 modem provisioning，默认不能覆盖官方固件证据。
 
