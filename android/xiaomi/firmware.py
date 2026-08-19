@@ -444,27 +444,45 @@ def _erofs_config_paths(image: Path) -> list[str]:
 
 def _extract_erofs_config_from_partition(image: Path, output_dir: Path) -> list[Path]:
     dumper = shutil.which("dump.erofs")
-    if not dumper:
+    if dumper:
+        result: list[Path] = []
+        for source_path in _erofs_config_paths(image):
+            output = _safe_relative_output(output_dir / image.stem, source_path.lstrip("/"))
+            output.parent.mkdir(parents=True, exist_ok=True)
+            temporary = output.with_suffix(output.suffix + ".part")
+            command = [dumper, "--cat", f"--path={source_path}", str(image)]
+            with temporary.open("wb") as stream:
+                completed = subprocess.run(
+                    command,
+                    check=False,
+                    stdout=stream,
+                    stderr=subprocess.DEVNULL,
+                )
+            if completed.returncode != 0 or temporary.stat().st_size == 0:
+                temporary.unlink(missing_ok=True)
+                continue
+            temporary.replace(output)
+            result.append(output)
+        if result:
+            return result
+
+    fsck = shutil.which("fsck.erofs")
+    if not fsck:
         return []
-    result: list[Path] = []
-    for source_path in _erofs_config_paths(image):
-        output = _safe_relative_output(output_dir / image.stem, source_path.lstrip("/"))
-        output.parent.mkdir(parents=True, exist_ok=True)
-        temporary = output.with_suffix(output.suffix + ".part")
-        command = [dumper, "--cat", f"--path={source_path}", str(image)]
-        with temporary.open("wb") as stream:
-            completed = subprocess.run(
-                command,
-                check=False,
-                stdout=stream,
-                stderr=subprocess.DEVNULL,
-            )
-        if completed.returncode != 0 or temporary.stat().st_size == 0:
-            temporary.unlink(missing_ok=True)
-            continue
-        temporary.replace(output)
-        result.append(output)
-    return result
+    extracted = output_dir / image.stem / "erofs-extract"
+    extracted.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [fsck, f"--extract={extracted}", "--no-preserve", str(image)],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return [
+        path
+        for path in sorted(extracted.rglob("*"))
+        if path.is_file()
+        and _partition_member_matches(str(path.relative_to(extracted)))
+    ]
 
 
 def _extract_config_from_partition(image: Path, output_dir: Path) -> list[Path]:
