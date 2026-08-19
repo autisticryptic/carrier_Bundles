@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import shutil
 import sys
@@ -21,6 +22,7 @@ MODEM_MEMBER_RE = re.compile(
     re.IGNORECASE,
 )
 USER_AGENT = "carrier-bundles-xiaomi-extractor/0.1"
+MANIFEST_NAME = "xiaomi-baseband-manifest.json"
 
 
 @dataclass(frozen=True)
@@ -103,10 +105,108 @@ def _safe_member_output(output_dir: Path, member_name: str) -> Path:
     return output
 
 
+def _rom_cache_key(path: Path) -> dict[str, object]:
+    stat = path.stat()
+    return {
+        "path": str(path.resolve()),
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+    }
+
+
+def _artifact_to_json(item: XiaomiModemArtifact) -> dict[str, object]:
+    return {
+        "archive_member": item.archive_member,
+        "extracted_path": str(item.extracted_path),
+        "sha256": item.sha256,
+        "size": item.size,
+    }
+
+
+def _artifact_from_json(value: object) -> XiaomiModemArtifact | None:
+    if not isinstance(value, dict):
+        return None
+    archive_member = value.get("archive_member")
+    extracted_path = value.get("extracted_path")
+    sha256 = value.get("sha256")
+    size = value.get("size")
+    if (
+        not isinstance(archive_member, str)
+        or not isinstance(extracted_path, str)
+        or not isinstance(sha256, str)
+        or not isinstance(size, int)
+    ):
+        return None
+    path = Path(extracted_path)
+    if not path.is_file() or path.stat().st_size != size:
+        return None
+    if digest_file(path) != sha256:
+        return None
+    return XiaomiModemArtifact(
+        archive_member=archive_member,
+        extracted_path=path,
+        sha256=sha256,
+        size=size,
+    )
+
+
+def _cached_inventory(
+    rom_path: Path, output_dir: Path
+) -> ExtractedXiaomiFirmware | None:
+    manifest = output_dir / MANIFEST_NAME
+    if not manifest.is_file():
+        return None
+    try:
+        document = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(document, dict) or document.get("rom") != _rom_cache_key(rom_path):
+        return None
+    rom_sha256 = document.get("rom_sha256")
+    raw_artifacts = document.get("modem_artifacts")
+    if not isinstance(rom_sha256, str) or not isinstance(raw_artifacts, list):
+        return None
+    artifacts = [_artifact_from_json(item) for item in raw_artifacts]
+    if not artifacts or any(item is None for item in artifacts):
+        return None
+    return ExtractedXiaomiFirmware(
+        rom_path=rom_path,
+        rom_sha256=rom_sha256,
+        modem_artifacts=tuple(item for item in artifacts if item is not None),
+    )
+
+
+def _write_inventory_manifest(
+    output_dir: Path, firmware: ExtractedXiaomiFirmware
+) -> None:
+    manifest = output_dir / MANIFEST_NAME
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema": "carrier-bundles-xiaomi-baseband-manifest-v1",
+                "rom": _rom_cache_key(firmware.rom_path),
+                "rom_sha256": firmware.rom_sha256,
+                "modem_artifacts": [
+                    _artifact_to_json(item) for item in firmware.modem_artifacts
+                ],
+            },
+            ensure_ascii=True,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def extract_xiaomi_modem_artifacts(rom_path: Path, output_dir: Path) -> ExtractedXiaomiFirmware:
     """Extract modem-related members from a Xiaomi fastboot tar/tgz archive."""
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    cached = _cached_inventory(rom_path, output_dir)
+    if cached is not None:
+        return cached
+
     modem_artifacts: list[XiaomiModemArtifact] = []
     with tarfile.open(rom_path, mode="r:*") as archive:
         members = [
@@ -138,9 +238,10 @@ def extract_xiaomi_modem_artifacts(rom_path: Path, output_dir: Path) -> Extracte
                 )
             )
 
-    return ExtractedXiaomiFirmware(
+    firmware = ExtractedXiaomiFirmware(
         rom_path=rom_path,
         rom_sha256=digest_file(rom_path),
         modem_artifacts=tuple(modem_artifacts),
     )
-
+    _write_inventory_manifest(output_dir, firmware)
+    return firmware

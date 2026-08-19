@@ -38,6 +38,11 @@ The importer extracts known modem-related members such as `NON-HLOS.bin`,
 `source_artifacts` row with the original archive member path, size and
 SHA-256. The whole ROM is recorded as a `firmware_manifest` source.
 
+The extractor writes `xiaomi-baseband-manifest.json` into the work directory
+after the first extraction. A second output variant in the same GitHub Actions
+job reuses that manifest and the extracted modem files instead of scanning and
+decompressing the full fastboot archive again.
+
 Because this catalog is an inventory-only source, it normally contains no
 `carrier_profiles`; profile-level fields must come from a later semantic
 adapter that can prove the meaning of individual modem or Android vendor keys.

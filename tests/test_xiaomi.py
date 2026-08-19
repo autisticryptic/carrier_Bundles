@@ -50,6 +50,13 @@ class XiaomiBasebandTests(unittest.TestCase):
                 [item.extracted_path.name for item in firmware.modem_artifacts],
                 ["dsp.img", "NON-HLOS.bin"],
             )
+            self.assertTrue((root / "extract/xiaomi-baseband-manifest.json").is_file())
+            cached = extract_xiaomi_modem_artifacts(rom, root / "extract")
+            self.assertEqual(cached.rom_sha256, firmware.rom_sha256)
+            self.assertEqual(
+                [item.sha256 for item in cached.modem_artifacts],
+                [item.sha256 for item in firmware.modem_artifacts],
+            )
 
             database = root / "xiaomi.sqlite3"
             subprocess.run(

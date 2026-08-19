@@ -122,7 +122,7 @@ python3 android/xiaomi/build_baseband_catalog.py --skip-icon-sync
 - `CI`：每次 push/PR 自动在 Python 3.11 和 3.13 上执行语法检查及全部单元测试。
 - `Build catalog set`：分别构建 Pixel ROM、iPhone Pro Max IPSW、Apple 在线 IPCC catalog 和 Xiaomi fastboot 基带 inventory；每份 SQLite 保持独立，并同时上传 summary、manifest 与 `SHA256SUMS`。某个来源失败不会阻止其他成功数据库发布。
 
-Release 中同一来源会同时发布带运营商图标的 `*-with-icons.sqlite3` 和不拉取图标的 `*-no-icons.sqlite3`。IPSW 数据库按实际手机型号和 iOS 版本命名，例如 `carrier-bundles-iphone16promax-26.6-with-icons.sqlite3`；Xiaomi 基带 inventory 使用 `carrier-bundles-xiaomi15ultra-xuanyuan-baseband-*.sqlite3`。
+Release 中同一来源会在同一个 job 内连续生成带运营商图标的 `*-with-icons.sqlite3` 和不拉取图标的 `*-no-icons.sqlite3`，复用同一份 ROM/IPSW/IPCC 下载与解包缓存，不再为图标变体启动第二个 job。IPSW 数据库按实际手机型号和 iOS 版本命名，例如 `carrier-bundles-iphone16promax-26.6-with-icons.sqlite3`；Xiaomi 基带 inventory 使用 `carrier-bundles-xiaomi15ultra-xuanyuan-baseband-*.sqlite3`。
 
 Pixel 在线构建必须先阅读 [Google Factory Images 条款](https://developers.google.com/android/images)，并在手动表单中确认接受。Factory ZIP、解包镜像和缓存只存在于临时 runner，不会进入 artifact；artifact 只包含最终 SQLite 和 `catalog-summary.json`。建议正式发布固定 `build_id`，不要使用 `latest`。
 
