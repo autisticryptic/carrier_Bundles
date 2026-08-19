@@ -209,7 +209,7 @@ jobs:
       - name: Install Xiaomi extraction tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends p7zip-full
+          sudo apt-get install --yes --no-install-recommends erofs-utils p7zip-full
           curl -L \
             -o "$RUNNER_TEMP/payload-dumper-go.tar.gz" \
             https://github.com/ssut/payload-dumper-go/releases/download/2.0.1/payload-dumper-go_2.0.1_linux_amd64.tar.gz

@@ -31,10 +31,10 @@ python3 android/xiaomi/build_baseband_catalog.py \
   --build-id OS3.0.301.0.WOAMIXM
 ```
 
-Full OTA extraction requires `payload-dumper-go` and 7-Zip. Fastboot extraction
-requires 7-Zip. The importer reads `CarrierConfig`, APN and ePDG XML files to
-produce `carrier_profiles`; if a ROM produces zero profiles, the build fails by
-default. Use `--allow-empty-profiles` only for diagnostics.
+Full OTA extraction requires `payload-dumper-go`, `erofs-utils` and 7-Zip.
+Fastboot extraction requires 7-Zip. The importer reads `CarrierConfig`, APN and
+ePDG XML files to produce `carrier_profiles`; if a ROM produces zero profiles,
+the build fails by default. Use `--allow-empty-profiles` only for diagnostics.
 
 The importer also extracts known modem-related members such as `NON-HLOS.bin`,
 `modem*.img`, `dsp*.img`, `adsp*.img`, `cdsp*.img`, `imagefv*.img` and

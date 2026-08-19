@@ -28,7 +28,8 @@ MODEM_MEMBER_RE = re.compile(
 USER_AGENT = "carrier-bundles-xiaomi-extractor/0.1"
 MANIFEST_NAME = "xiaomi-baseband-manifest.json"
 CONFIG_MANIFEST_NAME = "xiaomi-carrier-config-manifest.json"
-CONFIG_PARTITIONS = ("product", "system_ext", "vendor", "odm")
+CONFIG_PRIMARY_PAYLOAD_PARTITIONS = ("product",)
+CONFIG_FALLBACK_PAYLOAD_PARTITIONS = ("mi_ext", "system_ext", "vendor", "odm")
 MODEM_PAYLOAD_PARTITIONS = (
     "bluetooth",
     "dsp",
@@ -44,7 +45,7 @@ CONFIG_MEMBER_RE = re.compile(
     r"(^|/)(?:"
     r"etc/CarrierSettings/[^/]+\.pb|"
     r"etc/CarrierConfig/[^/]+\.xml|"
-    r"etc/(?:apns-conf|epdg_apns_conf)\.xml|"
+    r"etc/(?:apns-conf|fiveG-apns-conf|epdg_apns_conf)\.xml|"
     r"etc/[^/]*carrier[^/]*config[^/]*\.xml"
     r")$",
     re.IGNORECASE,
@@ -336,6 +337,8 @@ def _extract_payload_partitions(
     output_dir.mkdir(parents=True, exist_ok=True)
     command = [
         dumper,
+        "-q",
+        "-no-verify",
         "-p",
         ",".join(partitions),
         "-o",
@@ -350,9 +353,11 @@ def _extract_payload_partitions(
     ]
 
 
-def _extract_zip_payload_partitions(rom_path: Path, output_dir: Path) -> list[Path]:
+def _extract_zip_payload_partitions(
+    rom_path: Path, output_dir: Path, partitions: tuple[str, ...]
+) -> list[Path]:
     return _extract_payload_partitions(
-        rom_path, output_dir / "payload-partitions", CONFIG_PARTITIONS
+        rom_path, output_dir / "payload-partitions", partitions
     )
 
 
@@ -394,10 +399,84 @@ def _materialize_sparse_image(image: Path, output_dir: Path) -> Path:
     return raw
 
 
+def _partition_member_matches(relative_path: str) -> bool:
+    normalized = relative_path.replace("\\", "/").lstrip("/")
+    return CONFIG_MEMBER_RE.search(normalized) is not None
+
+
+def _erofs_ls(image: Path, directory: str) -> list[tuple[int, str]]:
+    dumper = shutil.which("dump.erofs")
+    if not dumper:
+        return []
+    command = [dumper, "--ls", f"--path={directory}", str(image)]
+    completed = subprocess.run(command, check=False, capture_output=True, text=True)
+    if completed.returncode != 0:
+        return []
+    result: list[tuple[int, str]] = []
+    for line in completed.stdout.splitlines():
+        columns = line.split(maxsplit=2)
+        if len(columns) != 3 or not columns[0].isdigit() or not columns[1].isdigit():
+            continue
+        name = columns[2]
+        if name not in {".", ".."}:
+            result.append((int(columns[1]), name))
+    return result
+
+
+def _erofs_config_paths(image: Path) -> list[str]:
+    paths: list[str] = []
+    etc_entries = _erofs_ls(image, "/etc")
+    if not etc_entries:
+        return paths
+    for entry_type, name in etc_entries:
+        relative_path = f"etc/{name}"
+        if entry_type == 1 and _partition_member_matches(relative_path):
+            paths.append(f"/{relative_path}")
+    for directory, suffixes in {
+        "/etc/CarrierConfig": (".xml",),
+        "/etc/CarrierSettings": (".pb",),
+    }.items():
+        for entry_type, name in _erofs_ls(image, directory):
+            if entry_type == 1 and name.casefold().endswith(suffixes):
+                paths.append(f"{directory}/{name}")
+    return sorted(set(paths), key=str.casefold)
+
+
+def _extract_erofs_config_from_partition(image: Path, output_dir: Path) -> list[Path]:
+    dumper = shutil.which("dump.erofs")
+    if not dumper:
+        return []
+    result: list[Path] = []
+    for source_path in _erofs_config_paths(image):
+        output = _safe_relative_output(output_dir / image.stem, source_path.lstrip("/"))
+        output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = output.with_suffix(output.suffix + ".part")
+        command = [dumper, "--cat", f"--path={source_path}", str(image)]
+        with temporary.open("wb") as stream:
+            completed = subprocess.run(
+                command,
+                check=False,
+                stdout=stream,
+                stderr=subprocess.DEVNULL,
+            )
+        if completed.returncode != 0 or temporary.stat().st_size == 0:
+            temporary.unlink(missing_ok=True)
+            continue
+        temporary.replace(output)
+        result.append(output)
+    return result
+
+
 def _extract_config_from_partition(image: Path, output_dir: Path) -> list[Path]:
+    erofs_files = _extract_erofs_config_from_partition(image, output_dir)
+    if erofs_files:
+        return erofs_files
+
     seven_zip = shutil.which("7z") or shutil.which("7zz")
     if not seven_zip:
-        raise RuntimeError("7-Zip is required to extract Xiaomi carrier config partitions")
+        raise RuntimeError(
+            "7-Zip or erofs-utils is required to extract Xiaomi carrier config partitions"
+        )
     extracted = output_dir / image.stem
     before = {path.resolve() for path in extracted.rglob("*")} if extracted.exists() else set()
     extracted.mkdir(parents=True, exist_ok=True)
@@ -405,6 +484,7 @@ def _extract_config_from_partition(image: Path, output_dir: Path) -> list[Path]:
         "etc/CarrierSettings/*",
         "etc/CarrierConfig/*",
         "etc/apns-conf.xml",
+        "etc/fiveG-apns-conf.xml",
         "etc/epdg_apns_conf.xml",
         "etc/*carrier*config*.xml",
     ]
@@ -458,9 +538,17 @@ def extract_xiaomi_carrier_configs(
             with zipfile.ZipFile(rom_path) as archive:
                 has_payload = any(info.filename == "payload.bin" for info in archive.infolist())
             if has_payload:
-                for image in _extract_zip_payload_partitions(rom_path, output_dir):
-                    materialized = _materialize_sparse_image(image, output_dir / "raw")
-                    _extract_config_from_partition(materialized, output_dir / "extracted")
+                for partitions in (
+                    CONFIG_PRIMARY_PAYLOAD_PARTITIONS,
+                    CONFIG_FALLBACK_PAYLOAD_PARTITIONS,
+                ):
+                    for image in _extract_zip_payload_partitions(
+                        rom_path, output_dir, partitions
+                    ):
+                        materialized = _materialize_sparse_image(image, output_dir / "raw")
+                        _extract_config_from_partition(materialized, output_dir / "extracted")
+                    if _collect_config_files(output_dir):
+                        break
     else:
         for image in _extract_tar_partition_images(rom_path, output_dir):
             if image.name.casefold() == "super.img":

@@ -277,7 +277,7 @@ def _is_relevant_config(path: Path) -> bool:
     name = path.name.casefold()
     return (
         name.startswith("carrier_config")
-        or name in {"apns-conf.xml", "epdg_apns_conf.xml"}
+        or name in {"apns-conf.xml", "fiveg-apns-conf.xml", "epdg_apns_conf.xml"}
     )
 
 
@@ -289,7 +289,7 @@ def load_xiaomi_xml_configs(
     for path in extracted.config_files:
         if path.suffix.casefold() != ".xml" or not _is_relevant_config(path):
             continue
-        if path.name.casefold() == "apns-conf.xml":
+        if path.name.casefold() in {"apns-conf.xml", "fiveg-apns-conf.xml"}:
             apns.extend(_parse_apns(path, extracted.root_dir))
         else:
             parsed = _parse_carrier_config(path, extracted.root_dir)

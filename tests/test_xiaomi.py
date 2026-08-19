@@ -13,9 +13,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-from android.xiaomi.carrier_config import import_xiaomi_carrier_config_catalog
+from android.xiaomi.carrier_config import (
+    import_xiaomi_carrier_config_catalog,
+    load_xiaomi_xml_configs,
+)
 from android.xiaomi.catalog import import_xiaomi_baseband_catalog
 from android.xiaomi.firmware import (
+    ExtractedXiaomiCarrierConfig,
     extract_xiaomi_carrier_configs,
     extract_xiaomi_modem_artifacts,
 )
@@ -28,6 +32,34 @@ class XiaomiBasebandTests(unittest.TestCase):
         info = tarfile.TarInfo(name)
         info.size = len(payload)
         archive.addfile(info, io.BytesIO(payload))
+
+    def test_loads_fiveg_apn_table_as_apn_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "product/etc/fiveG-apns-conf.xml"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                """<?xml version="1.0" encoding="utf-8"?>
+<apns>
+  <apn carrier="FiveG IMS" mcc="334" mnc="050" apn="ims"
+       type="ims" protocol="IPV4V6"/>
+</apns>
+""",
+                encoding="utf-8",
+            )
+            extracted = ExtractedXiaomiCarrierConfig(
+                rom_path=root / "rom.zip",
+                rom_sha256="0" * 64,
+                root_dir=root,
+                config_files=(config,),
+                carrier_settings_dir=None,
+            )
+
+            configs, apns = load_xiaomi_xml_configs(extracted)
+
+            self.assertEqual(configs, [])
+            self.assertEqual(len(apns), 1)
+            self.assertEqual(apns[0].plmn, "334050")
 
     def test_extracts_and_imports_baseband_inventory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
