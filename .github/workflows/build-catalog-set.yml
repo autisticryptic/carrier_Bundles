@@ -132,7 +132,10 @@ jobs:
           output="$RUNNER_TEMP/$base_output_name"
           args=(--product-type "$product_type" --version "$resolved_build" --work-dir "$work_dir" --output "$output")
           reuse_args=()
-          baseband_path=$(find "$work_dir/outer" -type f -name '*.bbfw' -print -quit)
+          baseband_path=""
+          if [[ -d "$work_dir/outer" ]]; then
+            baseband_path=$(find "$work_dir/outer" -type f -name '*.bbfw' -print -quit)
+          fi
           if [[ -d "$work_dir/carrier-extract" ]]; then
             reuse_args+=(--bundle-root "$work_dir/carrier-extract")
           fi
