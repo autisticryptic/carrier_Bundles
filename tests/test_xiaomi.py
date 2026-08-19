@@ -13,8 +13,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+from android.xiaomi.carrier_config import import_xiaomi_carrier_config_catalog
 from android.xiaomi.catalog import import_xiaomi_baseband_catalog
-from android.xiaomi.firmware import extract_xiaomi_modem_artifacts
+from android.xiaomi.firmware import (
+    extract_xiaomi_carrier_configs,
+    extract_xiaomi_modem_artifacts,
+)
 from android.xiaomi.sources import XiaomiFastbootArtifact
 from tools.verify_catalog import verify_catalog
 
@@ -41,6 +45,30 @@ class XiaomiBasebandTests(unittest.TestCase):
                 archive.writestr(
                     "payload.bin",
                     b"not part of the modem inventory",
+                )
+                archive.writestr(
+                    "product/etc/carrier_config_310260.xml",
+                    """<?xml version="1.0" encoding="utf-8"?>
+<carrier_config>
+  <boolean name="carrier_volte_available_bool" value="true"/>
+  <boolean name="carrier_vonr_available_bool" value="true"/>
+  <boolean name="carrier_wfc_ims_available_bool" value="true"/>
+  <string name="iwlan.epdg_static_address_string">epdg.epc.mnc260.mcc310.pub.3gppnetwork.org</string>
+  <boolean name="ims.sip_over_ipsec_enabled_bool" value="true"/>
+  <int name="ims.sip_preferred_transport_int" value="3"/>
+  <int name="ims.registration_expiry_timer_sec_int" value="600"/>
+</carrier_config>
+""",
+                )
+                archive.writestr(
+                    "product/etc/apns-conf.xml",
+                    """<?xml version="1.0" encoding="utf-8"?>
+<apns>
+  <apn carrier="Test Mobile" mcc="310" mnc="260" apn="ims"
+       type="ims" protocol="IPV4V6" roaming_protocol="IPV6"
+       authtype="1" user="ims-user" password="ims-pass" mtu="1420"/>
+</apns>
+""",
                 )
 
             tar_rom = root / "xiaomi-fastboot.tgz"
@@ -75,6 +103,8 @@ class XiaomiBasebandTests(unittest.TestCase):
                 [item.sha256 for item in cached.modem_artifacts],
                 [item.sha256 for item in firmware.modem_artifacts],
             )
+            carrier_config = extract_xiaomi_carrier_configs(rom, root / "carrier-config")
+            self.assertGreaterEqual(len(carrier_config.config_files), 2)
 
             database = root / "xiaomi.sqlite3"
             subprocess.run(
@@ -101,8 +131,12 @@ class XiaomiBasebandTests(unittest.TestCase):
                 md5=None,
                 package_kind="firmware_zip",
             )
-            stats = import_xiaomi_baseband_catalog(database, firmware, artifact=artifact)
-            self.assertEqual(stats.modem_artifacts_imported, 2)
+            carrier_stats = import_xiaomi_carrier_config_catalog(
+                database, carrier_config, artifact=artifact
+            )
+            self.assertEqual(carrier_stats.profiles_imported, 1)
+            baseband_stats = import_xiaomi_baseband_catalog(database, firmware, artifact=artifact)
+            self.assertEqual(baseband_stats.modem_artifacts_imported, 2)
 
             with closing(sqlite3.connect(database)) as connection:
                 rows = connection.execute(
@@ -110,11 +144,13 @@ class XiaomiBasebandTests(unittest.TestCase):
                        FROM source_artifacts ORDER BY source_id"""
                 ).fetchall()
                 self.assertEqual([row[0] for row in rows], [
+                    "carrier_config",
+                    "standards_reference",
                     "firmware_manifest",
                     "modem_config",
                     "modem_config",
                 ])
-                revisions = [json.loads(row[3]) for row in rows[1:]]
+                revisions = [json.loads(row[3]) for row in rows[3:]]
                 self.assertEqual(
                     [revision["archive_member"] for revision in revisions],
                     [
@@ -124,6 +160,21 @@ class XiaomiBasebandTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     connection.execute("SELECT count(*) FROM carrier_profiles").fetchone()[0],
+                    1,
+                )
+                self.assertEqual(
+                    connection.execute("SELECT count(*) FROM profile_sources").fetchone()[0],
+                    2,
+                )
+                config = json.loads(
+                    connection.execute(
+                        "SELECT config_json FROM carrier_profiles"
+                    ).fetchone()[0]
+                )
+                self.assertEqual(config["access"]["lte"]["apn"], "ims")
+                self.assertEqual(config["services"]["volte"], True)
+                self.assertGreater(
+                    connection.execute("SELECT count(*) FROM field_evidence").fetchone()[0],
                     0,
                 )
 
@@ -139,8 +190,9 @@ class XiaomiBasebandTests(unittest.TestCase):
                 text=True,
             )
             summary = verify_catalog(database)
-            self.assertEqual(summary["counts"]["source_artifacts"], 3)
-            self.assertEqual(summary["counts"]["carrier_profiles"], 0)
+            self.assertEqual(summary["counts"]["source_artifacts"], 5)
+            self.assertEqual(summary["counts"]["carrier_profiles"], 1)
+            self.assertEqual(summary["counts"]["profile_sources"], 2)
 
 
 if __name__ == "__main__":

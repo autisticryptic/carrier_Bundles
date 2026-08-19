@@ -74,7 +74,7 @@ def import_xiaomi_baseband_catalog(
                 extracted_at,
                 PARSER_NAME,
                 PARSER_VERSION,
-                "Official Xiaomi fastboot ROM inventory; no subscriber data.",
+                "Xiaomi ROM inventory; no subscriber data.",
             ),
         )
 
@@ -109,8 +109,20 @@ def import_xiaomi_baseband_catalog(
                 ),
             )
 
+        row = connection.execute(
+            "SELECT notes FROM catalog_metadata WHERE singleton = 1"
+        ).fetchone()
+        existing_notes = {}
+        if row is not None and isinstance(row[0], str):
+            try:
+                parsed = json.loads(row[0])
+                if isinstance(parsed, dict):
+                    existing_notes = parsed
+            except json.JSONDecodeError:
+                existing_notes = {}
         notes = {
-            "source_kind": "xiaomi_firmware_baseband_inventory",
+            **existing_notes,
+            "source_kind": "xiaomi_carrier_baseband_catalog",
             "device_name": artifact.device_name,
             "codename": artifact.codename,
             "region": artifact.region,
@@ -121,10 +133,7 @@ def import_xiaomi_baseband_catalog(
             "modem_artifacts": [
                 _artifact_summary(item) for item in firmware.modem_artifacts
             ],
-            "semantic_boundary": (
-                "This catalog inventories public modem firmware artifacts only; "
-                "it does not infer IMS, VoLTE, VoNR or VoWiFi runtime parameters."
-            ),
+            "baseband_boundary": "Raw modem firmware is inventoried but not semantically decoded.",
         }
         connection.execute(
             "UPDATE catalog_metadata SET notes = ? WHERE singleton = 1",

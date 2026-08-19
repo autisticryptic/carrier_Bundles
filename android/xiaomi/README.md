@@ -1,51 +1,46 @@
-# Xiaomi firmware baseband inventory
+# Xiaomi carrier/baseband catalog
 
-This extractor inventories modem-related artifacts from official Xiaomi
-firmware ZIPs or fastboot ROM archives and stores the result in the root
-schema-v7 database.
-It does not decode Qualcomm/MediaTek modem internals and does not infer IMS,
-VoLTE, VoNR or VoWiFi runtime parameters from raw baseband firmware.
+This extractor imports public carrier configuration from Xiaomi full OTA or
+fastboot ROM archives and stores the result in the root schema-v7 database. It
+also inventories modem-related artifacts. It does not decode Qualcomm/MediaTek
+modem internals.
 
-Default pinned source is XM Firmware Updater's firmware-only package, extracted
-from the official Xiaomi ROM and hosted on GitHub Releases:
+Default pinned source is a full OTA mirror for:
 
 ```text
 Xiaomi 15 Ultra / xuanyuan / Global
 HyperOS OS3.0.301.0.WOAMIXM / Android 16
-https://github.com/XiaomiFirmwareUpdaterReleases/firmware_xiaomi_xuanyuan/releases/download/stable-12.05.2026/fw_xuanyuan_xuanyuan_global-ota_full-OS3.0.301.0.WOAMIXM-user-16.0-a67f21cbf3.zip
-MD5: f53a4b0b909e2977ce6f0a349ba5ea80
+https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.301.0.WOAMIXM/xuanyuan_global-ota_full-OS3.0.301.0.WOAMIXM-user-16.0-a67f21cbf3.zip
 ```
 
 Build:
 
 ```bash
-python3 android/xiaomi/build_baseband_catalog.py --skip-icon-sync
+python3 android/xiaomi/build_baseband_catalog.py
 ```
 
-Use a local firmware ZIP or fastboot archive:
+Use a local full OTA ZIP or fastboot archive:
 
 ```bash
 python3 android/xiaomi/build_baseband_catalog.py \
-  --rom-path data/raw/xiaomi/fw_xuanyuan_xuanyuan_global-ota_full-OS3.0.301.0.WOAMIXM-user-16.0-a67f21cbf3.zip \
+  --rom-path data/raw/xiaomi/xuanyuan_global-ota_full-OS3.0.301.0.WOAMIXM-user-16.0-a67f21cbf3.zip \
   --device-name "Xiaomi 15 Ultra" \
   --device xuanyuan \
   --region Global \
   --android-version 16 \
-  --build-id OS3.0.301.0.WOAMIXM \
-  --skip-icon-sync
+  --build-id OS3.0.301.0.WOAMIXM
 ```
 
-The importer extracts known modem-related members such as `NON-HLOS.bin`,
+Full OTA extraction requires `payload-dumper-go` and 7-Zip. Fastboot extraction
+requires 7-Zip. The importer reads `CarrierConfig`, APN and ePDG XML files to
+produce `carrier_profiles`; if a ROM produces zero profiles, the build fails by
+default. Use `--allow-empty-profiles` only for diagnostics.
+
+The importer also extracts known modem-related members such as `NON-HLOS.bin`,
 `modem*.img`, `dsp*.img`, `adsp*.img`, `cdsp*.img`, `imagefv*.img` and
 `xbl_config*.elf`. Each extracted member is recorded as a `modem_config`
-`source_artifacts` row with the original archive member path, size and
-SHA-256. The whole ROM is recorded as a `firmware_manifest` source.
+`source_artifacts` row with the original archive member path, size and SHA-256.
 
-The extractor writes `xiaomi-baseband-manifest.json` into the work directory
-after the first extraction. A second output variant in the same GitHub Actions
-job reuses that manifest and the extracted modem files instead of scanning and
-decompressing the full fastboot archive again.
-
-Because this catalog is an inventory-only source, it normally contains no
-`carrier_profiles`; profile-level fields must come from a later semantic
-adapter that can prove the meaning of individual modem or Android vendor keys.
+Firmware-only packages, including XM Firmware Updater's small `fw_*.zip`
+artifacts, do not contain Android carrier configuration files and cannot produce
+a useful carrier profile catalog by themselves.

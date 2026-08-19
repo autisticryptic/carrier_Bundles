@@ -58,7 +58,7 @@ file:carrier-bundles-2026.08.07.sqlite3?mode=ro&immutable=1
 
 schema v7 的详细设计见 [`docs/数据库设计.md`](./docs/数据库设计.md)，平台输出规则见 [`docs/适配器契约.md`](./docs/适配器契约.md)，身份/Header 占位符见 [`docs/模板变量.md`](./docs/模板变量.md)。根目录 `schema.sql` 和 `config.schema.json` 是当前唯一查询/JSON 契约。
 
-提取器的实现顺序、上游项目选择和每阶段交付边界见 [`docs/提取器路线图.md`](./docs/提取器路线图.md)。当前确定的主线是 Pixel 官方固件 -> iOS 官方 IPSW/Carrier Bundle -> Xiaomi fastboot 基带 inventory -> Samsung AP/CSC/IMSService -> 独立 modem 语义适配器；三方 ROM 只作辅助证据。
+提取器的实现顺序、上游项目选择和每阶段交付边界见 [`docs/提取器路线图.md`](./docs/提取器路线图.md)。当前确定的主线是 Pixel 官方固件 -> iOS 官方 IPSW/Carrier Bundle -> Xiaomi ROM CarrierConfig/APN 与基带 inventory -> Samsung AP/CSC/IMSService -> 独立 modem 语义适配器；三方 ROM 只作辅助证据。
 
 ## Pixel 自动构建
 
@@ -103,15 +103,15 @@ python3 ios/build_catalog.py \
 
 完整参数、系统依赖和证据边界见 [`ios/README.md`](./ios/README.md)。
 
-## Xiaomi 基带 inventory
+## Xiaomi 运营商配置与基带 inventory
 
-Xiaomi firmware 包现在有独立的基带制品 inventory 构建器，默认固定到 XM Firmware Updater 从 Xiaomi 15 Ultra (`xuanyuan`) Global HyperOS `OS3.0.301.0.WOAMIXM` / Android 16 官方 ROM 提取出的 firmware-only ZIP。它由 GitHub Releases 托管，约 218MB，避免在 Actions 中下载 11.8GB fastboot 包：
+Xiaomi ROM 现在有独立构建器，默认固定到 Xiaomi 15 Ultra (`xuanyuan`) Global HyperOS `OS3.0.301.0.WOAMIXM` / Android 16 的完整 OTA mirror。它会提取 `CarrierConfig`、APN/ePDG XML 并写入 `carrier_profiles`，同时记录 `modem*.img`、`dsp*.img` 等基带制品 inventory：
 
 ```bash
-python3 android/xiaomi/build_baseband_catalog.py --skip-icon-sync
+python3 android/xiaomi/build_baseband_catalog.py
 ```
 
-该构建只把 ROM 和基带相关成员（例如 `NON-HLOS.bin`、`modem*.img`、`dsp*.img`）作为 `firmware_manifest` / `modem_config` 来源写入 schema v7，保留路径、大小、哈希和 build 元数据。它不猜测原始基带固件里的 IMS、VoLTE、VoNR 或 VoWiFi 字段，因此通常不会生成 `carrier_profiles`。
+firmware-only 包只包含基带镜像，不能生成运营商 profile；默认构建会在 `carrier_profiles=0` 时失败，避免发布不可用空库。
 
 完整参数见 [`android/xiaomi/README.md`](./android/xiaomi/README.md)。
 
@@ -120,9 +120,9 @@ python3 android/xiaomi/build_baseband_catalog.py --skip-icon-sync
 仓库包含两条线上流程：
 
 - `CI`：每次 push/PR 自动在 Python 3.11 和 3.13 上执行语法检查及全部单元测试。
-- `Build catalog set`：分别构建 Pixel ROM、iPhone Pro Max IPSW、Apple 在线 IPCC catalog 和 Xiaomi firmware 基带 inventory；每份 SQLite 保持独立，并同时上传 summary、manifest 与 `SHA256SUMS`。某个来源失败不会阻止其他成功数据库发布。
+- `Build catalog set`：分别构建 Pixel ROM、iPhone Pro Max IPSW、Apple 在线 IPCC catalog 和 Xiaomi carrier/baseband catalog；每份 SQLite 保持独立，并同时上传 summary、manifest 与 `SHA256SUMS`。某个来源失败不会阻止其他成功数据库发布。
 
-Release 中同一来源会在同一个 job 内连续生成带运营商图标的 `*-with-icons.sqlite3` 和不拉取图标的 `*-no-icons.sqlite3`，复用同一份 ROM/IPSW/IPCC 下载与解包缓存，不再为图标变体启动第二个 job。IPSW 数据库按实际手机型号和 iOS 版本命名，例如 `carrier-bundles-iphone16promax-26.6-with-icons.sqlite3`；Xiaomi 基带 inventory 使用 `carrier-bundles-xiaomi15ultra-xuanyuan-baseband-*.sqlite3`。
+Release 只发布带运营商图标的数据库，不再生成 `no-icons` 变体。IPSW 数据库按实际手机型号和 iOS 版本命名，例如 `carrier-bundles-iphone16promax-26.6.sqlite3`；Xiaomi catalog 使用 `carrier-bundles-xiaomi15ultra-xuanyuan-baseband.sqlite3`。
 
 Pixel 在线构建必须先阅读 [Google Factory Images 条款](https://developers.google.com/android/images)，并在手动表单中确认接受。Factory ZIP、解包镜像和缓存只存在于临时 runner，不会进入 artifact；artifact 只包含最终 SQLite 和 `catalog-summary.json`。建议正式发布固定 `build_id`，不要使用 `latest`。
 
@@ -159,7 +159,7 @@ WHERE c.plmn = '310260';
 
 - SQLite schema v7 已可初始化、查询、嵌入图标和只读封存；8 张物理表通过 `carrier_profiles.config_json` 覆盖 IMS、LTE、NR、VoWiFi、IKE、SIP、媒体、ViLTE、XCAP、entitlement 和 emergency 配置。
 - Pixel Factory Image 提取器已实现下载校验、sparse/ext4 解包、CarrierSettings 归一化、MCFG inventory 和一键构建。
-- Xiaomi 15 Ultra fastboot 基带 inventory 已实现官方 ROM 下载校验、基带相关成员抽取、哈希记录和 schema v7 封存；它暂不输出运营商 profile。
+- Xiaomi 15 Ultra catalog 已实现完整 OTA/fastboot ROM 的 CarrierConfig/APN profile 提取、基带相关成员抽取、哈希记录和 schema v7 封存。
 - NekokoLPA2 图标同步/打包器与首批 fallback badge 已建立。
 - Pixel 5 `redfin` Android 14 catalog 仅作为历史归档；新的默认目标是 Google 官方 Pixel 10 Pro XL `mustang` 全球 Factory Image，区域 `.A1` 行不会被 `latest` 误选。
 - 设备、系统、build 和 baseband 只出现在构建摘要、日志和文件名，不进入运营商 profile 或运行时匹配表。
