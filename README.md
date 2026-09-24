@@ -6,6 +6,10 @@
 
 这个仓库不是用户态 IMS 客户端，也不保存 SIM、用户、线路或注册日志。数据库只随固件/基带来源更新而重新构建。
 
+**命名边界**：`lte_ims_status` / `nr_ims_status` 表示 IMS 注册配置完整性；
+`services.volte` / `services.vonr` 是语音能力，不是注册开关。关闭语音不会将配置齐全的
+SMS-only IMS 判成不支持。具体兼容边界见 [数据库设计](docs/数据库设计.md#ims-注册与语音能力命名2026-09-24)。
+
 ## 结构
 
 ```text

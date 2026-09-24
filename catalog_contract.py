@@ -80,7 +80,10 @@ REQUIRED_PATHS = {
 }
 
 
-SERVICE_KEYS = {"lte": "volte", "nr": "vonr", "vowifi": "vowifi"}
+# LTE/NR IMS readiness is about registration configuration, not voice service.
+# services.volte/vonr are source facts used for MMTEL capabilities and must not
+# disable SMS-only IMS. Keep the existing Wi-Fi service opt-out separately.
+ACCESS_SERVICE_KEYS = {"vowifi": "vowifi"}
 
 
 def evaluate_readiness(config: dict[str, Any]) -> dict[str, str]:
@@ -91,7 +94,8 @@ def evaluate_readiness(config: dict[str, Any]) -> dict[str, str]:
     missing: dict[str, list[str]] = {}
     statuses: dict[str, str] = {}
     for kind, required in REQUIRED_PATHS.items():
-        service = services.get(SERVICE_KEYS[kind]) if isinstance(services, dict) else None
+        service_key = ACCESS_SERVICE_KEYS.get(kind)
+        service = services.get(service_key) if isinstance(services, dict) and service_key else None
         if service is False:
             statuses[kind] = "unsupported"
             missing[kind] = []
