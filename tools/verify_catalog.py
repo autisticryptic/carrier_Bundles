@@ -67,11 +67,17 @@ def _validate_profiles(connection: sqlite3.Connection) -> dict[str, int]:
     return readiness
 
 
-def verify_catalog(database: Path) -> dict[str, object]:
+def verify_catalog(database: Path, *, require_readonly: bool = True) -> dict[str, object]:
+    """Validate content through an immutable read-only connection.
+
+    Imported snapshots may have lost POSIX permissions in transit. Offline
+    variant builds can validate those without modifying their original files;
+    release verification still requires read-only file permissions by default.
+    """
     if not database.is_file():
         raise ValueError(f"catalog does not exist: {database}")
     writable_bits = stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
-    if database.stat().st_mode & writable_bits:
+    if require_readonly and database.stat().st_mode & writable_bits:
         raise ValueError("catalog file is not sealed read-only")
 
     uri = f"{database.resolve().as_uri()}?mode=ro&immutable=1"
@@ -84,6 +90,8 @@ def verify_catalog(database: Path) -> dict[str, object]:
         if foreign_key_error is not None:
             raise ValueError(f"foreign_key_check failed: {foreign_key_error}")
         application_id = connection.execute("PRAGMA application_id").fetchone()[0]
+        if application_id != 1128419922:
+            raise ValueError(f"unsupported application id: {application_id}")
         user_version = connection.execute("PRAGMA user_version").fetchone()[0]
         if user_version != 7:
             raise ValueError(f"unsupported schema version: {user_version}")

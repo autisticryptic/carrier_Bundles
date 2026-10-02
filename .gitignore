@@ -6,6 +6,7 @@ data/*.db-wal
 data/*.db-shm
 data/*.db-journal
 data/*.building
+data/variants/
 
 # Extracted firmware and temporary work files
 data/raw/

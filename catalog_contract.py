@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -113,19 +114,31 @@ def evaluate_readiness(config: dict[str, Any]) -> dict[str, str]:
     return statuses
 
 
-def validate_config(config: dict[str, Any]) -> None:
-    if not isinstance(config, dict):
-        raise ValueError("config must be a JSON object")
-    if config.get("protocol_baseline") != CONFIG_CONTRACT:
-        raise ValueError(f"unsupported protocol_baseline: {config.get('protocol_baseline')}")
+@lru_cache(maxsize=1)
+def _config_schema() -> dict[str, Any]:
+    """The checked-in contract is immutable for one build/verification process.
+
+    A catalog has thousands of profiles; reopening the same small schema for
+    every row makes offline variants needlessly slow on mounted filesystems.
+    Errors are not cached, so a missing or malformed contract still fails closed.
+    """
     if not CONFIG_SCHEMA_PATH.is_file():
         raise ValueError(f"missing config schema: {CONFIG_SCHEMA_PATH}")
     try:
         schema = json.loads(CONFIG_SCHEMA_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError(f"cannot load config schema: {error}") from error
-    if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
+    if not isinstance(schema, dict) or schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
         raise ValueError("config schema must use JSON Schema draft 2020-12")
+    return schema
+
+
+def validate_config(config: dict[str, Any]) -> None:
+    if not isinstance(config, dict):
+        raise ValueError("config must be a JSON object")
+    if config.get("protocol_baseline") != CONFIG_CONTRACT:
+        raise ValueError(f"unsupported protocol_baseline: {config.get('protocol_baseline')}")
+    schema = _config_schema()
     schema_contract = schema.get("properties", {}).get("protocol_baseline", {}).get("const")
     if config.get("protocol_baseline") != schema_contract:
         raise ValueError("config does not satisfy config.schema.json")

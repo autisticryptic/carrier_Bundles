@@ -245,19 +245,43 @@ jobs:
     if: ${{ always() && (needs.pixel.result == 'success' || needs.ios.result == 'success' || needs.ipcc.result == 'success' || needs.xiaomi.result == 'success') }}
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: catalog-*
-          path: catalog-set
+          path: catalog-sources
           merge-multiple: true
-      - name: Make aggregate checksums and summary
+      - name: Build and verify three variants for each successful source
         env:
           PIXEL_RESULT: ${{ needs.pixel.result }}
           IOS_IPSW_RESULT: ${{ needs.ios.result }}
           IOS_IPCC_RESULT: ${{ needs.ipcc.result }}
           XIAOMI_BASEBAND_RESULT: ${{ needs.xiaomi.result }}
         run: |
-          find catalog-set -type f -name '*.sqlite3' -print0 | sort -z | xargs -0 sha256sum > catalog-set/SHA256SUMS
+          set -euo pipefail
+          catalogs=()
+          if [[ "$PIXEL_RESULT" == success ]]; then
+            catalogs+=(catalog-sources/carrier-bundles-pixel-mustang.sqlite3)
+          fi
+          if [[ "$IOS_IPSW_RESULT" == success ]]; then
+            for catalog in catalog-sources/carrier-bundles-iphone*.sqlite3; do
+              [[ "$catalog" != *-no-icons.sqlite3 && "$catalog" != *-with-icons.sqlite3 ]] || continue
+              catalogs+=("$catalog")
+            done
+          fi
+          if [[ "$IOS_IPCC_RESULT" == success ]]; then
+            catalogs+=(catalog-sources/carrier-bundles-ios-ipcc.sqlite3)
+          fi
+          if [[ "$XIAOMI_BASEBAND_RESULT" == success ]]; then
+            catalogs+=(catalog-sources/carrier-bundles-xiaomi15ultra-xuanyuan-baseband.sqlite3)
+          fi
+          python3 tools/build_variants.py "${catalogs[@]}" --output-dir catalog-set \
+            --simulation-report simulation_pruning/verified-evidence.json
+          find catalog-sources -maxdepth 1 -type f ! -name '*.sqlite3' ! -name 'SHA256SUMS*' \
+            -exec cp '{}' catalog-set/ \;
           {
             echo '# Catalog set'
             echo
@@ -270,8 +294,14 @@ jobs:
             echo "| Apple online IPCC index | $IOS_IPCC_RESULT |"
             echo "| Xiaomi 15 Ultra carrier/baseband catalog | $XIAOMI_BASEBAND_RESULT |"
             echo
+            echo 'Each successful source includes full, no-icons, and minimal-no-icons variants.'
+            echo 'Minimal directly removes LTE/Wi-Fi configurations covered by the recorded standard-core simulation model; other policies and NR configurations remain.'
+            echo 'The SQLite schema and JSON contract stay v7/v1. This is conditional offline evidence, not live carrier certification.'
+            echo 'See catalog-variants.json and per-source *.pruning.json. No universal IMS/VoWiFi registration guarantee is made.'
+            echo
             echo 'A failed source is not merged into another database; successful catalogs remain publishable.'
           } > catalog-set/BUILD_STATUS.md
+          (cd catalog-set && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | xargs -d '\n' sha256sum > SHA256SUMS)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: carrier-bundles-catalog-set-${{ github.run_id }}

@@ -47,7 +47,15 @@ jobs:
           -r android/pixel/requirements.txt
 
       - name: Check Python syntax
-        run: python -m compileall -q android ios icons tools tests
+        run: python -m compileall -q android ios icons tools tests simulation_pruning simulations
+
+      - name: Validate frozen offline evidence (not a new live registration)
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from simulation_pruning.evidence import validate_evidence
+          print(validate_evidence(Path('simulation_pruning/verified-evidence.json')))
+          PY
 
       - name: Run unit tests
         run: python -m unittest discover -s tests -v

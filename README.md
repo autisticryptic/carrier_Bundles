@@ -124,9 +124,16 @@ firmware-only 包只包含基带镜像，不能生成运营商 profile；默认�
 仓库包含两条线上流程：
 
 - `CI`：每次 push/PR 自动在 Python 3.11 和 3.13 上执行语法检查及全部单元测试。
-- `Build catalog set`：分别构建 Pixel ROM、iPhone Pro Max IPSW、Apple 在线 IPCC catalog 和 Xiaomi carrier/baseband catalog；每份 SQLite 保持独立，并同时上传 summary、manifest 与 `SHA256SUMS`。某个来源失败不会阻止其他成功数据库发布。
+- `Build catalog set`：分别构建 Pixel ROM、iPhone Pro Max IPSW、Apple 在线 IPCC catalog 和 Xiaomi carrier/baseband catalog；每份 SQLite 保持独立，并为每个成功来源生成完整、无图标、直接筛选精简无图标三个版本，同时上传裁剪报告、manifest 与 `SHA256SUMS`。某个来源失败不会阻止其他成功数据库发布。
 
-Release 只发布带运营商图标的数据库，不再生成 `no-icons` 变体。IPSW 数据库按实际手机型号和 iOS 版本命名，例如 `carrier-bundles-iphone16promax-26.6.sqlite3`；Xiaomi catalog 使用 `carrier-bundles-xiaomi15ultra-xuanyuan-baseband.sqlite3`。
+每个来源现在有三种变体（四来源齐全时共 12 份 SQLite）：原始完整版、`*-no-icons.sqlite3`、
+`*-minimal-no-icons.sqlite3`。精简版按已验证的标准核心网模拟模型，**直接删除可由 LTE IMS /
+VoWiFi 派生兜底覆盖的接入配置**，全部接入均可删除时再移除整条 Profile；其他策略及 NR 配置
+保留。仍使用原 schema v7 / contract v1，不增加新格式或生成标记。模拟不是全网实测保证。
+构建命令、删除计数与边界见 [三种构建变体](docs/CATALOG_VARIANTS.md)，
+可重复模拟脚本见 [离线注册模拟](simulations/ims_registration/README.md)。
+IPSW 原始文件仍按实际手机型号和 iOS 版本命名，例如 `carrier-bundles-iphone16promax-26.6.sqlite3`；
+Xiaomi 原始 catalog 使用 `carrier-bundles-xiaomi15ultra-xuanyuan-baseband.sqlite3`。
 
 Pixel 在线构建必须先阅读 [Google Factory Images 条款](https://developers.google.com/android/images)，并在手动表单中确认接受。Factory ZIP、解包镜像和缓存只存在于临时 runner，不会进入 artifact；artifact 只包含最终 SQLite 和 `catalog-summary.json`。建议正式发布固定 `build_id`，不要使用 `latest`。
 
@@ -134,7 +141,12 @@ iOS 全量提取需要下载大体积 AEA、解密 APFS 并使用 FUSE；`Build 
 
 ## Release 发布
 
-GitHub Release 只接收已经由 `tools/seal_db.py` 封存、再由 `tools/verify_catalog.py` 验证的数据库。发布工作流使用临时 `release-staging/**` 分支传递制品，通过仓库内 `release-assets/manifest.json` 固定 tag、目标 commit、release 标题和说明；目标 commit 必须与远端 `main` 完全相同。Release 附件包括原始 `.sqlite3`、`catalog-summary.json` 和 `SHA256SUMS`。
+GitHub Release 只接收已封存、再由 `tools/verify_catalog.py` 验证的数据库：原始提取库使用
+`tools/seal_db.py`，衍生变体由 `tools/build_variants.py` 在独立副本上生成并封存。
+单库 staged-release 工作流使用临时 `release-staging/**` 分支传递制品，通过仓库内
+`release-assets/manifest.json` 固定 tag、目标 commit、release 标题和说明；目标 commit 必须与远端
+`main` 完全相同。Release 附件包括各来源的三种 `.sqlite3` 变体、来源 summary、`catalog-variants.json`、
+逐来源 `*.pruning.json` 和 `SHA256SUMS`；单库 staged-release 流程仍可单独发布经验证的库。
 
 不同固件始终发布独立 catalog。Pixel 5 (`redfin`) 只作为归档，新的 Pixel 与各代 iPhone Pro Max 不会互相合并或补齐字段。
 

@@ -100,12 +100,19 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Build full, no-icons and minimal-no-icons variants
+        run: >-
+          python3 tools/build_variants.py
+          "$RUNNER_TEMP/carrier-bundles-pixel.sqlite3"
+          --output-dir "$RUNNER_TEMP/catalog-variants"
+          --simulation-report simulation_pruning/verified-evidence.json
+
       - name: Upload catalog artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pixel-carrier-bundles-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/carrier-bundles-pixel.sqlite3
+            ${{ runner.temp }}/catalog-variants/*
             ${{ runner.temp }}/catalog-summary.json
           if-no-files-found: error
           compression-level: 0
