@@ -175,7 +175,7 @@ class SimulationPruningTests(unittest.TestCase):
     def test_incomplete_or_inconsistent_simulation_evidence_fails_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);path=root/'report.json';base=report_fixture(path)
-            self.assertEqual(validate_evidence(path)['scenarios'],21)
+            self.assertEqual(validate_evidence(path)['scenarios'],24)
             for mutate in (
                 lambda d:d.update(live_network_verified=True),
                 lambda d:d['scenarios'].pop(),

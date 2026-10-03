@@ -1,5 +1,5 @@
 use super::*;
-use crate::connectivity::core::offline_sim::{WireBuilder, SIM_SECURITY};
+use crate::connectivity::core::offline_sim::WireBuilder;
 
 pub(crate) fn builder(
     profile: &'static CarrierProfile,
@@ -12,6 +12,7 @@ pub(crate) fn builder(
         route,
         variants: register_variants(profile),
         index: 0,
+        security_verify: None,
     })
 }
 struct Builder {
@@ -20,6 +21,7 @@ struct Builder {
     route: ImsRoute,
     variants: Vec<CellularImsRegisterVariant>,
     index: usize,
+    security_verify: Option<String>,
 }
 impl WireBuilder for Builder {
     fn build(&self, cseq: u32, expires: u32, authorization: Option<&str>) -> Vec<u8> {
@@ -34,6 +36,9 @@ impl WireBuilder for Builder {
                 )
             });
         let enabled = self.profile.ims.register.sec_agree_mode != "disabled";
+        let security = variant.security_client_offer.build(SecAgree {
+            spi_c:10001,spi_s:10002,port_c:5062,port_s:5063,
+        },self.profile).expect("valid real client-offer builder");
         sip::build_register_from_profile(
             self.profile,
             if authorization.is_some() {
@@ -50,11 +55,16 @@ impl WireBuilder for Builder {
             },
             expires,
             authorization.or(initial.as_deref()),
-            enabled.then_some(SIM_SECURITY),
-            (enabled && authorization.is_some()).then_some(SIM_SECURITY),
+            enabled.then_some(security.as_str()),
+            if enabled && authorization.is_some() { self.security_verify.as_deref() } else { None },
             "urn:uuid:00000000-0000-4000-8000-000000000001",
             variant.policy,
         )
+    }
+    fn accept_security_challenge(&mut self, frame: &[u8]) -> Result<(), ImsError> {
+        self.security_verify = select_security_server(self.profile, &sip::header_values(frame,"Security-Server"))?
+            .map(|selected| selected.verify);
+        Ok(())
     }
     fn advance(&mut self, failure: &RegisterFailure) -> bool {
         if failure.auth_rounds != 0 {

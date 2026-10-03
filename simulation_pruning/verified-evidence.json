@@ -41,6 +41,70 @@
       "digest_verified_count": 1,
       "expected_success": true,
       "failure_code": null,
+      "id": "lte_second_security_mechanism",
+      "limitations": [
+        "SIM output is synthetic; security transport metadata is not encrypted XFRM/IKE",
+        "No radio, NAS, entitlement or operator availability proof"
+      ],
+      "observed_success": true,
+      "passed": true,
+      "request_count": 2,
+      "status_trace": [
+        401,
+        200
+      ]
+    },
+    {
+      "access": "lte",
+      "auth_rounds": 1,
+      "candidate_trace": [
+        "standard_3gpp_conservative"
+      ],
+      "digest_verified_count": 0,
+      "expected_success": false,
+      "failure_code": "cellular_ims_security_server_invalid",
+      "id": "lte_unoffered_security_rejected",
+      "limitations": [
+        "SIM output is synthetic; security transport metadata is not encrypted XFRM/IKE",
+        "No radio, NAS, entitlement or operator availability proof"
+      ],
+      "observed_success": false,
+      "passed": true,
+      "request_count": 1,
+      "status_trace": [
+        401
+      ]
+    },
+    {
+      "access": "lte",
+      "auth_rounds": 1,
+      "candidate_trace": [
+        "standard_3gpp_conservative"
+      ],
+      "digest_verified_count": 0,
+      "expected_success": false,
+      "failure_code": "cellular_ims_security_server_invalid",
+      "id": "lte_unsolicited_security_cannot_override_disabled",
+      "limitations": [
+        "SIM output is synthetic; security transport metadata is not encrypted XFRM/IKE",
+        "No radio, NAS, entitlement or operator availability proof"
+      ],
+      "observed_success": false,
+      "passed": true,
+      "request_count": 1,
+      "status_trace": [
+        401
+      ]
+    },
+    {
+      "access": "lte",
+      "auth_rounds": 1,
+      "candidate_trace": [
+        "standard_3gpp_conservative"
+      ],
+      "digest_verified_count": 1,
+      "expected_success": true,
+      "failure_code": null,
       "id": "lte_required_sec_agree_first_request",
       "limitations": [
         "SIM output is synthetic; security transport metadata is not encrypted XFRM/IKE",
@@ -522,13 +586,13 @@
     "backend/src/connectivity/mod.rs": "40ab19a1c3167f6a6690f96cf7d65c7fce043c01609b6a32ea88b6c329e2092c",
     "backend/src/connectivity/modems/ims/access_network.rs": "86cae26781d2422dd596331825d15841bec579551ac8695b90547b02d0156e5a",
     "backend/src/connectivity/modems/ims/cellular_ims/bearer.rs": "42bb95832c782795bad2c44b7ba0dcdd01d518c9457ab4705054bb5c61b0ec80",
-    "backend/src/connectivity/modems/ims/cellular_ims/channel.rs": "3378c6bbd14784796a83f73d3b5c9fb914b1bbc8d19b85e335a30eafbad451c9",
+    "backend/src/connectivity/modems/ims/cellular_ims/channel.rs": "5c82b3cabb9ba769aa45aa38deab3499c5df3aa6e5084729a01e5db0cf16ddb0",
     "backend/src/connectivity/modems/ims/cellular_ims/data_slot.rs": "ad8a3686dc5ca5ad82f2e889803f271bd92c7084a99eaa2943c6c98eedfec160",
     "backend/src/connectivity/modems/ims/cellular_ims/digest_aka.rs": "5fd74aa9b791379e3b5ff313df3af7de3c4d1fe49d7f75a90dcd56ea464c934d",
-    "backend/src/connectivity/modems/ims/cellular_ims/errors.rs": "f91a33b97025f781f44abfdc44de14ff552afe99444848a386dd6ce67b0c7cb5",
+    "backend/src/connectivity/modems/ims/cellular_ims/errors.rs": "8ab7c747c4dd106e5117f5fb60c74142f5abafd9e8c4f8d5876a93f7b2c9c149",
     "backend/src/connectivity/modems/ims/cellular_ims/identity.rs": "12df0daabe9effae8f88cd638d495a4161b4ff2d4897af572b5018e5a030c8a3",
-    "backend/src/connectivity/modems/ims/cellular_ims/ipsec.rs": "ae9a66028e1ce71cc02960dd296341953ed6e153760604e030b12339afa6fc09",
-    "backend/src/connectivity/modems/ims/cellular_ims/live.rs": "dca47c941b48a04e1908c6eec013ec9bf2ddf0b7bb470ef8b108e52889d15a02",
+    "backend/src/connectivity/modems/ims/cellular_ims/ipsec.rs": "206fe3dd3c4ffbf45b975d01bdff2656bf7d43e6a791319f90e47343e72a368e",
+    "backend/src/connectivity/modems/ims/cellular_ims/live.rs": "ba2396c0d33d06f14f9bf98ba19a10cc47ef858e70a98feb91dda1cd3470ec03",
     "backend/src/connectivity/modems/ims/cellular_ims/mm_binding.rs": "cf20d736e90015fe7f17956f961b3cab85b18fd7399dc08fce33d9001f08a3a0",
     "backend/src/connectivity/modems/ims/cellular_ims/mod.rs": "7be95a72eff1a75519e5e51bc28aaf87d2182aa38d8e0a362a8f40ebb86b147c",
     "backend/src/connectivity/modems/ims/cellular_ims/native_bearer.rs": "0edf10142f9f8f28140399951938a5d291ea584874a1df0d74a4bc3e04222f90",
@@ -536,10 +600,10 @@
     "backend/src/connectivity/modems/ims/cellular_ims/pcscf_dns.rs": "6098e983b08108a26c21235efed0b59efcf323c8d196a85f7aaa77efe9c33696",
     "backend/src/connectivity/modems/ims/cellular_ims/plan.rs": "5845511b4707f71f01dc0100990d7c55cf457c386d1e173898898e8e045954bf",
     "backend/src/connectivity/modems/ims/cellular_ims/readiness.rs": "7658097b52b4548bf42b62766f04c4cb516d474bd981ec43a10ba31081571c31",
-    "backend/src/connectivity/modems/ims/cellular_ims/refresh_tests.rs": "eb4f0d6ddb3a5e87c8cadec78238a2385d14384a53eebbb0c962b2d20979c1ed",
+    "backend/src/connectivity/modems/ims/cellular_ims/refresh_tests.rs": "866505b3c0366186854371cc15f3c41f2eea2c4403119fafadc0ad863f302c40",
     "backend/src/connectivity/modems/ims/cellular_ims/rtp_relay.rs": "17a325071b85f8bec1ca8d91bd4b21801b30709cd9f721aebf51ad8b47e47de5",
     "backend/src/connectivity/modems/ims/cellular_ims/runtime.rs": "ce973db6abe84b3ac824c0741bdd372e2dc64fb3f6cb4d5c2e567bc478e17753",
-    "backend/src/connectivity/modems/ims/cellular_ims/security_agreement.rs": "b9ae98e6f2cb48615c35537c9f2f98196e91ea80a6d8c031161df987bf1fa31e",
+    "backend/src/connectivity/modems/ims/cellular_ims/security_agreement.rs": "960f8e32a13464fecf0bbe7edb2009ba0683923104aa527703c5076dd1d377e9",
     "backend/src/connectivity/modems/ims/cellular_ims/sip.rs": "adc463d1353d5a0d6315355122c77288951d9f7041f7afceb1bd704c7d4e58fa",
     "backend/src/connectivity/modems/ims/cellular_ims/sms.rs": "712566d8827516d8c41f2fd572e2c056f6e11e835f9eafacb66585794d708deb",
     "backend/src/connectivity/modems/ims/cellular_ims/vilte.rs": "48103c5bebbf588469a39b1591572053ec5e14f89a2ae8b740ac852ba3b7a583",
@@ -577,7 +641,7 @@
     "backend/src/connectivity/modems/ims/vowifi/operator.rs": "8ef2b4437000cd322553d99441843dd2b34ea00e50a8ffd81c35cde50eef5b21",
     "backend/src/connectivity/modems/ims/vowifi/profile_record.rs": "5201bdfdaa145b27ac5ad9c2c32d06ee9c734d83fb8f3fdf211de6aaedd7e1a5",
     "backend/src/connectivity/modems/ims/vowifi/profile_store.rs": "9842ffe6b06e569dc55d9c9183ff8210ed6965cbe38f677d4d3d3da4c17efb34",
-    "backend/src/connectivity/modems/ims/vowifi/profiles.rs": "49f3d965389e89e9e0468152dcc875c5e8ec55711983567a1c9c96a80955566c",
+    "backend/src/connectivity/modems/ims/vowifi/profiles.rs": "4aeb0640fcab2e6f53d265f282fc1aac869284b4f35085b749e9417786faae55",
     "backend/src/connectivity/modems/ims/vowifi/qmi_uim.rs": "e24b50c3e4c05178e1823394af3d03b884d472a15cb0c70bea528a2e0dc7b659",
     "backend/src/connectivity/modems/ims/vowifi/qmi_uim_native_tests.rs": "d2f7fcbe799bc288a857b0e673d4d895b948221abec88c59844408b845b0b72b",
     "backend/src/connectivity/modems/ims/vowifi/restore.rs": "123bbbaa820967dd5a528d55399e445f831773d340f63321cdf5f3349abfcab5",
@@ -730,12 +794,12 @@
     "backend/src/state.rs": "cd1a72abc70353d51de81468c35ab9149e04281b5b394028c42d0ef41bd201dd"
   },
   "harness_files_sha256": {
-    "simulator.rs": "93f484615f28d5eecd1ffaadf94fa78caa1521ef11648bd1576092eb4a0d057d",
-    "cellular_adapter.rs": "679ff959585f9ac8197dd5fc4e3a989b095ed3737c266a6e0f2e3ddb2212e71d",
+    "simulator.rs": "0873b716b8bae9d1aa52887ccb270647a1f5282f468498c0bce1452aeb407c56",
+    "cellular_adapter.rs": "3e2b9dc73d49ae50bf7b0b8ba5847e53f381f9d1150d813b6b623a8524229a15",
     "wifi_adapter.rs": "bd74e96159b46bed1eab92def798d7fbe5ba6f2c5128b092f4b4dfbfc1db7acb"
   },
-  "source_tree_sha256": "1e5b2b3bccc301748838b077c7030b0c6c147a7eefa86a2ef12343aba1558b0c",
-  "log_sha256": "82ba11665dece72e959a6006f2eaf3178571757b718b9ebafafe3f6eb1b4d57a",
+  "source_tree_sha256": "fefddf122449d26448dee6abd45bbd3ddc2ba1d50324e3296bb6c53bff6dd12e",
+  "log_sha256": "f813bd4033aba9516af4b8191c097824f975b6864e83c12b1ec8eaddcac4f965",
   "test_count": 1,
   "test_hooks_added_only_in_temporary_copy": [],
   "interpretation": "Conditional standard-core model only; no live carrier certification. Unknown/stricter configuration must be retained."

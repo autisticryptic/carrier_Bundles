@@ -20,15 +20,15 @@ python3 simulations/ims_registration/run.py \
 - 使用内存 SIP 通道、合成 SIM 返回值；不使用真实 SIM、D-Bus、网络命名空间或 XFRM。
 - 输出路径必须不存在；失败保留日志，不生成“通过”报告。程序同时核对源文件在测试期间未变。
 
-报告包含实际源码及测试程序摘要、21个场景结果；不输出 nonce、AKA 密钥、完整认证头或真实
+报告包含实际源码及测试程序摘要、24个场景结果；不输出 nonce、AKA 密钥、完整认证头或真实
 用户身份。SQLite 构建器检查这些证据；若传入 `--simadmin-source`，还会与当前代码逐项核对。
 
 ## 实际验证的场景
 
-13个正例：LTE首包必须具备完整sec-agree声明、LTE/Wi-Fi AKA、Wi-Fi 421和494累加兼容回退、407、AKAv2-MD5、
+14个正例（新增LTE对端选择第二安全机制，使用实际客户端报价与服务端选择代码）：LTE首包必须具备完整sec-agree声明、LTE/Wi-Fi AKA、Wi-Fi 421和494累加兼容回退、407、AKAv2-MD5、
 AKAv2-SHA-256、认证前后 423、无关/过期 SIP 帧、UDP 字节相同重传、明确省略与 SMS-only。
 
-8个预期失败反例：显式disabled不能被required要求覆盖、关闭必要回退、认证次数耗尽、普通403、
+10个预期失败反例（新增LTE未提供算法拒绝、未请求的协商不能覆盖disabled）：显式disabled不能被required要求覆盖、关闭必要回退、认证次数耗尽、普通403、
 特殊运营商域、错误Digest、非法nonce、未授权的普通MD5。**预期失败算测试通过，不算注册成功。**
 
 对端在回复 200 前核对身份、URI、realm、nonce count、租期及独立计算的 Digest；不是

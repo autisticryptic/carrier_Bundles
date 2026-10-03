@@ -27,6 +27,7 @@ const IK: &[u8] = &[0x22; 16];
 
 pub(crate) trait WireBuilder: Send {
     fn build(&self, cseq: u32, expires: u32, authorization: Option<&str>) -> Vec<u8>;
+    fn accept_security_challenge(&mut self, _frame: &[u8]) -> Result<(), ImsError> { Ok(()) }
     fn advance(&mut self, failure: &RegisterFailure) -> bool;
     fn label(&self) -> &'static str;
 }
@@ -152,6 +153,11 @@ impl Peer {
             },
             self.algorithm()
         );
+        let mut extra = extra;
+        if matches!(self.scenario.mode,"second_security"|"unoffered_security"|"unsolicited_disabled") {
+            let alg = if self.scenario.mode=="unoffered_security" {"hmac-md5-96"} else {"hmac-sha-1-96"};
+            extra.push_str(&format!("Security-Server: ipsec-3gpp;alg={alg};ealg=null;prot=esp;mod=trans;spi-c=20001;spi-s=20002;port-c=6002;port-s=6003\r\n"));
+        }
         self.reply(request, if proxy { 407 } else { 401 }, &extra);
     }
 }
@@ -183,6 +189,16 @@ impl ImsChannel for Peer {
         let fields = auth.as_deref().map(parameters).unwrap_or_default();
         let authenticated = fields.get("response").is_some_and(|v| !v.is_empty());
         let expires = header(frame, "Expires").unwrap().parse::<u32>().unwrap();
+        if self.scenario.mode == "second_security" {
+            let offered=header(frame,"Security-Client").unwrap_or_default();
+            if !offered.split(',').any(|v|v.contains("alg=hmac-sha-1-96") && v.contains("ealg=null")) {
+                self.reply(frame,488,"");return Ok(());
+            }
+            if authenticated {
+                assert_eq!(header(frame,"Security-Client"),header(&self.sent[0],"Security-Client"));
+                assert!(header(frame,"Security-Verify").is_some_and(|v|v.contains("ealg=null") && v.contains("spi-c=20001")));
+            }
+        }
         if self.scenario.mode == "custom_domain" {
             assert_ne!(
                 std::str::from_utf8(frame)
@@ -234,7 +250,7 @@ impl ImsChannel for Peer {
                 return Ok(());
             }
         }
-        if !self.scenario.wifi && self.scenario.mode != "omit" && !authenticated {
+        if !self.scenario.wifi && !matches!(self.scenario.mode,"omit"|"unsolicited_disabled") && !authenticated {
             assert!(
                 header(frame, "Authorization").is_some() || auth.is_some(),
                 "derived LTE must identify AKA before challenge"
@@ -348,6 +364,7 @@ impl RegisterAuthenticator<Peer> for Auth {
             &sip_frame::header_values(frame, "Proxy-Authenticate"),
             false,
         )?;
+        self.wire.accept_security_challenge(frame)?;
         digest::decode_aka_nonce(&challenge.nonce)?;
         self.saved = Some(challenge);
         self.authorized(cseq)
@@ -378,7 +395,7 @@ async fn run_case(scenario: Scenario) -> Value {
         },
     )
     .unwrap();
-    let profile: &'static CarrierProfile = if matches!(scenario.mode, "omit" | "required_disabled") {
+    let profile: &'static CarrierProfile = if matches!(scenario.mode, "omit" | "required_disabled" | "unsolicited_disabled") {
         let mut p = *base;
         p.ims.register.sec_agree_mode = "disabled";
         p.ims.register.require_sec_agree_headers = false;
@@ -458,7 +475,7 @@ async fn run_case(scenario: Scenario) -> Value {
         assert_eq!(rounds, 2);
         assert_eq!(candidates.len(), 1);
     }
-    if matches!(scenario.mode, "403" | "bad_proof" | "custom_domain" | "required_disabled") {
+    if matches!(scenario.mode, "403" | "bad_proof" | "custom_domain" | "required_disabled" | "unoffered_security" | "unsolicited_disabled") {
         assert_eq!(candidates.len(), 1);
     }
     json!({"id":scenario.id,"access":if scenario.wifi{"vowifi"}else{"lte"},"expected_success":scenario.expected,
@@ -472,6 +489,9 @@ async fn run_case(scenario: Scenario) -> Value {
 async fn offline_derivation_registration_matrix() {
     let cases = [
         ("lte_aka_baseline", false, "baseline", true, true),
+        ("lte_second_security_mechanism", false, "second_security", true, true),
+        ("lte_unoffered_security_rejected", false, "unoffered_security", false, true),
+        ("lte_unsolicited_security_cannot_override_disabled", false, "unsolicited_disabled", false, true),
         ("lte_required_sec_agree_first_request", false, "required_first", true, true),
         ("lte_required_does_not_override_disabled", false, "required_disabled", false, true),
         ("wifi_aka_baseline", true, "baseline", true, true),
