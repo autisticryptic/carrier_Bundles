@@ -33,6 +33,49 @@
       ]
     },
     {
+      "access": "lte",
+      "auth_rounds": 1,
+      "candidate_trace": [
+        "standard_3gpp_conservative"
+      ],
+      "digest_verified_count": 1,
+      "expected_success": true,
+      "failure_code": null,
+      "id": "lte_required_sec_agree_first_request",
+      "limitations": [
+        "SIM output is synthetic; security transport metadata is not encrypted XFRM/IKE",
+        "No radio, NAS, entitlement or operator availability proof"
+      ],
+      "observed_success": true,
+      "passed": true,
+      "request_count": 2,
+      "status_trace": [
+        401,
+        200
+      ]
+    },
+    {
+      "access": "lte",
+      "auth_rounds": 0,
+      "candidate_trace": [
+        "standard_3gpp_conservative"
+      ],
+      "digest_verified_count": 0,
+      "expected_success": false,
+      "failure_code": "ims_register_initial_unexpected_status",
+      "id": "lte_required_does_not_override_disabled",
+      "limitations": [
+        "SIM output is synthetic; security transport metadata is not encrypted XFRM/IKE",
+        "No radio, NAS, entitlement or operator availability proof"
+      ],
+      "observed_success": false,
+      "passed": true,
+      "request_count": 1,
+      "status_trace": [
+        403
+      ]
+    },
+    {
       "access": "vowifi",
       "auth_rounds": 1,
       "candidate_trace": [
@@ -448,7 +491,7 @@
     "backend/src/api/events.rs": "04f285074fcc5a82dd7ac08ca14648181ed561f3e07ef04d510f3995492a4501",
     "backend/src/api/handlers.rs": "eee18d541101d793586e0dfe9ceb91f117a1f1e1b078c5283f2759f3bb0ca639",
     "backend/src/api/mod.rs": "c54ebf06758cba01bd989716da0b26e5c7c649445be12251a275b659e5b52abc",
-    "backend/src/api/models.rs": "5123a4dc17182782dfae2b822ce884a05038f765e42b47b38c42b9206794889d",
+    "backend/src/api/models.rs": "f360d90fb053e0a5d5e5ae54e4ae0d652b24d80352d2fa2c45f964a4cd67c7c5",
     "backend/src/api/native_controls.rs": "1decfcc95efece2cf48f6eab7733a4ad5d4ab89f1e79120e43b165e1233e64f1",
     "backend/src/connectivity/core/access.rs": "292ebf63b20684c8da844128edd2c19fbc362d445eea7ab439d6ab25fba0b502",
     "backend/src/connectivity/core/access_network.rs": "32dfc1b44823523d5d00470b2e3590fa9f7112f636cdd27f79ce085e27ffb86b",
@@ -507,9 +550,10 @@
     "backend/src/connectivity/modems/ims/vowifi/aka.rs": "ab9ec7308c5962d9bcef00d4727a5191c6b6906ecad49fca08e539fa7bba7b08",
     "backend/src/connectivity/modems/ims/vowifi/carrier_catalog.rs": "1ced35bd99ab6d9a2bec4a92312542070ded540fdad63f97fb997987ef0d75cc",
     "backend/src/connectivity/modems/ims/vowifi/carrier_catalog_v7.rs": "4bdd6fd1635bd9931ae6a1ff9af49def8e9b8758f18ba0da8f43a0b9f6d6c5a0",
-    "backend/src/connectivity/modems/ims/vowifi/carrier_catalog_v7_variants_tests.rs": "0827c4eb7e0f77738ff19c1b3be5e74d778b1bba44ad2d320e766a4f6d2c444a",
+    "backend/src/connectivity/modems/ims/vowifi/carrier_catalog_v7_variants_tests.rs": "c884b23132b4765a88d28114a347d4707d5f3ada217bfc006dfbd0d3f017d5a0",
     "backend/src/connectivity/modems/ims/vowifi/channel.rs": "9d91490803a25a721939bd319fdc08948c4c8417ed78a43ea8fb1bb9c3e5dd2b",
     "backend/src/connectivity/modems/ims/vowifi/dataplane.rs": "aacb1db2029e095f593f05b2f51cfc9b64935671c9e2a8d289c7758c50f6ba07",
+    "backend/src/connectivity/modems/ims/vowifi/derived_hardening_tests.rs": "133d18d4f4ee61df42479acd899dd24a400a82a148b385ed48d60aee479aea3c",
     "backend/src/connectivity/modems/ims/vowifi/diagnostics.rs": "581f99a715643a1e39fc9f19eb95fe53dfcf9b061d76bc7f3f47fe9f54cdfd54",
     "backend/src/connectivity/modems/ims/vowifi/eap_aka.rs": "4ae6d7b44173a760bd715a1ffa3c4a5da6a584ff1f93706fb235052508a1431b",
     "backend/src/connectivity/modems/ims/vowifi/epdg.rs": "de3206551f4fe4fd50d817de97e4a6c6b71dd870a6146ef4f010687c8e271966",
@@ -526,14 +570,14 @@
     "backend/src/connectivity/modems/ims/vowifi/ike_keys.rs": "1ae957a3862ebff478105dd67477a2ae66f65629a24050e2b42c08cd2122431c",
     "backend/src/connectivity/modems/ims/vowifi/ike_payloads.rs": "acab97eabd6b623c94267457eae6a45178efbc66171ada0ca8ba54362427d22a",
     "backend/src/connectivity/modems/ims/vowifi/ike_retransmit.rs": "777f265ef96b2b625f3af97efc96009183021fbe64a33b5b4a69498856f0d694",
-    "backend/src/connectivity/modems/ims/vowifi/ike_state.rs": "1b97424ef18187c09f60193bfe4f4805393d897f9d00038a53d81803158cb045",
+    "backend/src/connectivity/modems/ims/vowifi/ike_state.rs": "2a4d420e5a5d0b7e46bf37643be6da3e7bc01cd70e69cb449207da4874182438",
     "backend/src/connectivity/modems/ims/vowifi/ims.rs": "80f40ec06c26760887cc53b6dc14803e00b3cf49ded72b3a486ad68e5efaf849",
-    "backend/src/connectivity/modems/ims/vowifi/live.rs": "d1414999111a5100c3de22ce62747a5d40e9ea959046ce9c0a17644340f1bc9e",
+    "backend/src/connectivity/modems/ims/vowifi/live.rs": "1fc83f4bf76cf5ea299e039589b7453a5ee737493dc0668ea6d52331854ad688",
     "backend/src/connectivity/modems/ims/vowifi/mod.rs": "f11b28d9e66ae6a89767c1b1da7ae07ab94520d2191c78621b41a6ab4fe6e9b9",
     "backend/src/connectivity/modems/ims/vowifi/operator.rs": "8ef2b4437000cd322553d99441843dd2b34ea00e50a8ffd81c35cde50eef5b21",
     "backend/src/connectivity/modems/ims/vowifi/profile_record.rs": "5201bdfdaa145b27ac5ad9c2c32d06ee9c734d83fb8f3fdf211de6aaedd7e1a5",
     "backend/src/connectivity/modems/ims/vowifi/profile_store.rs": "9842ffe6b06e569dc55d9c9183ff8210ed6965cbe38f677d4d3d3da4c17efb34",
-    "backend/src/connectivity/modems/ims/vowifi/profiles.rs": "949774a1d39654a925643af0e5605d502a3d2485e259f1baac1ffc195b5fbe10",
+    "backend/src/connectivity/modems/ims/vowifi/profiles.rs": "49f3d965389e89e9e0468152dcc875c5e8ec55711983567a1c9c96a80955566c",
     "backend/src/connectivity/modems/ims/vowifi/qmi_uim.rs": "e24b50c3e4c05178e1823394af3d03b884d472a15cb0c70bea528a2e0dc7b659",
     "backend/src/connectivity/modems/ims/vowifi/qmi_uim_native_tests.rs": "d2f7fcbe799bc288a857b0e673d4d895b948221abec88c59844408b845b0b72b",
     "backend/src/connectivity/modems/ims/vowifi/restore.rs": "123bbbaa820967dd5a528d55399e445f831773d340f63321cdf5f3349abfcab5",
@@ -579,11 +623,11 @@
     "backend/src/hardware/cellular/ussd.rs": "5603151b694fe94912bca22ee2163ae25a35374ff841d4f2880ff2fb3ccf4745",
     "backend/src/hardware/devices/baseband_faults.rs": "757d1c5f9bc42b229e2f6311f3f559d6be7d07b9a90aed54d55aff50253a1587",
     "backend/src/hardware/devices/dji.rs": "7547603699988037984725181c3695e7bf74a67a72ec665fd12d66bee414b1e7",
-    "backend/src/hardware/devices/mod.rs": "1a1b618910c288130121277b58c252c4ecf70e74b8d549716ec5d2e2b2e5dca0",
+    "backend/src/hardware/devices/mod.rs": "65503b36505986ef7f34dec8e1e4407485e4a56885ef384bf711078b62882c8a",
     "backend/src/hardware/devices/pcsc/mod.rs": "b47227a683e0507ac6534cc33f7efdf2291a8789e092848150546fe22435d925",
     "backend/src/hardware/devices/qcm410/baseband_faults.rs": "1666271293a2deb8095aa5dbcac35ab0fb30a12bc1b9e49069a2a9e1e4ab7b0f",
     "backend/src/hardware/devices/qcm410/ims_bearer.rs": "0c0f08b8817798e1e5fc1ba3a10e2247dce952165f66399e7a0eb6ca8e357245",
-    "backend/src/hardware/devices/qcm410/mod.rs": "c432572e20ea8c0ec4803a12637f58a5ae98b95e98f724bad1df489eb7eeb22a",
+    "backend/src/hardware/devices/qcm410/mod.rs": "ff188c9f07c6bbacfa4a1d7433c86f2e22cc68b2cf1b771c339239452d2a4650",
     "backend/src/hardware/devices/qcm410/netdev.rs": "98caf9ba1580fe25187136a8641f7ce108d1ae8a01ac52c6c3ca1a824a7cfe35",
     "backend/src/hardware/devices/qcm410/primary_ims_lifecycle.rs": "225a69788a61dbff1185e945f1990bc2fb3c6bc6c235068438e75049faf41bfa",
     "backend/src/hardware/devices/qcm410/primary_ims_pcscf.rs": "b551bd0ab95cab0284d3864563e367105b86eff590438664178550b539e99e56",
@@ -591,10 +635,10 @@
     "backend/src/hardware/devices/qcm410/primary_ims_pcscf_separated_tests.rs": "2691ca9aebf3e47cd575aa258d0bc69c635a0eff1db69f0b757730f2da67aa1f",
     "backend/src/hardware/devices/qcm410/primary_ims_profile_lease.rs": "67d30971cc5c829b23a438c6307b4cea2bbd281eeb25121e2c5b1fe9439db089",
     "backend/src/hardware/devices/qcm410/primary_ims_profile_lease_dbus_tests.rs": "b741c5291a187aff42cbf81b8eea41dbceb0c2afca2b66fbb04165f0ea00a98a",
-    "backend/src/hardware/devices/qcm410/primary_ims_profile_retirement.rs": "593e7dd99c3f48ec288d0e1c197247c70a40f6cb99d435e8c7c1e99678f62a33",
-    "backend/src/hardware/devices/qcm410/primary_ims_profile_retirement_tests.rs": "a793bac7838084f8546ace0233ec4eb1dfe5222ecc10c0fe57e3d5456b1d6db6",
-    "backend/src/hardware/devices/qcm410/primary_ims_profile_runtime.rs": "298cf8efa77c49d02f1b7da6dde08f05197bb4d99743d63c502276492fe3c3e2",
-    "backend/src/hardware/devices/qcm410/primary_ims_profile_runtime_dbus_tests.rs": "8a5fb9550d23f265f748a553ac84deb4be67bd947f777838c85a6237d90c95e1",
+    "backend/src/hardware/devices/qcm410/primary_ims_profile_retirement.rs": "241a9eb394985d2dc6df247215392660c71071b42294955ab9f774441629c18f",
+    "backend/src/hardware/devices/qcm410/primary_ims_profile_retirement_tests.rs": "438e26a1b4bc4eb8ddfb01087a55a4c47b6f3122e9b387876c4972e0a9e0164a",
+    "backend/src/hardware/devices/qcm410/primary_ims_profile_runtime.rs": "8bcebbd978f37f22c0b286746f228911b2713f17752d368b52ec03a0aa007afa",
+    "backend/src/hardware/devices/qcm410/primary_ims_profile_runtime_dbus_tests.rs": "8c6ed33097d3d759a4cdc0a01d99a91bd9357f36f5ce1f8fa3b4f5cccc3974e2",
     "backend/src/hardware/devices/qcm410/primary_ims_profile_runtime_tests.rs": "54b8d6b28cdf489bd0b14f86a91816ef0c1f06632b613b54eea4a0f8a025600a",
     "backend/src/hardware/devices/qcm410/primary_ims_recovery.rs": "1de704e9fd61d6dda9a9a8181692b90f3bbb2d6dd5917c4a2bae8e749cf7b45e",
     "backend/src/hardware/devices/qcm410/primary_ims_session.rs": "1524d9a66d45ff36d861951a8a779a5ac503416fa8f73243237e694fcfe2ad86",
@@ -609,10 +653,10 @@
     "backend/src/hardware/devices/quectel/mod.rs": "e7f7a6771f123913583f34111c435fc4a4378fc8e754645cf43e44022eb91c81",
     "backend/src/hardware/devices/transport.rs": "40dd73295a1e11cdba8b942f5d54c289f34be11a30b877a75bdc64dd9445a73c",
     "backend/src/hardware/mod.rs": "fad200496d08f7f74daabb4b640f1794ef1fab5dbc56329967852c5a7327c69a",
-    "backend/src/hardware/sim/esim.rs": "4be6c56d13ac9c4132d2bf0e055dfbbcf080d9d333d7353515357a7c4b72c3bc",
+    "backend/src/hardware/sim/esim.rs": "2e6c2016c31b6e1cbc2e3eab4ffbe49976552f5007e6e901aaf8013efa88cfb7",
     "backend/src/hardware/sim/mod.rs": "09b56321e58e492ce8f0c032fc8c7f6afe4408b9d4fea2df711f23fc270394a8",
-    "backend/src/main.rs": "ac0a3aba8f417e2adb1f3ffbac81aa068aedce84dee83a093961403d0cbcf4bb",
-    "backend/src/platform/config.rs": "2d109b6649c4027d0751ce5d4a095475f5c9e671560ae8d1eab6ab0e42136d53",
+    "backend/src/main.rs": "7942016e31e7fcc38790baf2a2a29815cd5dd12116f7bf45c77c6c81a9151e59",
+    "backend/src/platform/config.rs": "af2ff381c4fd98ec105d5f7f5da2cb0919b092a267615fa5c8e3adba651a2abb",
     "backend/src/platform/config_file.rs": "d73f2e12dc58773a16d5954ff5ad2e60308f388f55228bd25fb4f8e36cb38c51",
     "backend/src/platform/config_maintenance.rs": "bd9399a907867e32f99736c46999fb69ffc1767d9bf9c7171c52ea2b24a89435",
     "backend/src/platform/config_store.rs": "158af1888949aae58e7c408f3dc20de102b648b13bc8ecf37e4afa04963e94b2",
@@ -642,7 +686,8 @@
     "backend/src/services/e911/state_store.rs": "be253bb2ee27b88c1faf4788c688ee6381c431e367a33420bd330cac14114214",
     "backend/src/services/e911/ts43.rs": "c49654424f5f9916cffc3778108f51d430912eba726383925ccf79169342f0cd",
     "backend/src/services/event_bus.rs": "9667e6bb434b6b40e0e8029148359fff58d08be29f73ad29821029ec8af38fde",
-    "backend/src/services/line_registry.rs": "bf6d8a0d0c2c757d9bc780ee17863e842d906281a31d2499c9a2b658294e72b7",
+    "backend/src/services/ims_startup_gate.rs": "98a434e00e0f0b480c99948cfca38fd99c9092856674b7271f311c62fc283320",
+    "backend/src/services/line_registry.rs": "f57d61a3067d287b47f9b2262ed02008e9aad157a04102b5064c6cf5357a68ae",
     "backend/src/services/messaging/mod.rs": "0b8e223b1e5c32a830936e85d7617bf60ff976df044a7799d9cf25cce6d0c0b0",
     "backend/src/services/messaging/native_sms.rs": "7bd51df1082b31e4809f204871ac1859662684f86bba112a6eebcd698376a38d",
     "backend/src/services/messaging/sms_listener.rs": "e9b808b3df5ddedf59e96f467187ce5247c0a007334515a6a0b18c20e164ed41",
@@ -685,12 +730,12 @@
     "backend/src/state.rs": "cd1a72abc70353d51de81468c35ab9149e04281b5b394028c42d0ef41bd201dd"
   },
   "harness_files_sha256": {
-    "simulator.rs": "0e9966dfeb799b8573a24af91f86e8042bcafc56b9d99367174c7d116c23ab22",
+    "simulator.rs": "93f484615f28d5eecd1ffaadf94fa78caa1521ef11648bd1576092eb4a0d057d",
     "cellular_adapter.rs": "679ff959585f9ac8197dd5fc4e3a989b095ed3737c266a6e0f2e3ddb2212e71d",
     "wifi_adapter.rs": "bd74e96159b46bed1eab92def798d7fbe5ba6f2c5128b092f4b4dfbfc1db7acb"
   },
-  "source_tree_sha256": "2bbc1cd27d326f78374b70bcfcddedff867ad3254751207cfea096da96196ff1",
-  "log_sha256": "79c56a0a1084afa88f9b4799efe8d78128ac6a1ea17f7f82bf017660fe83a447",
+  "source_tree_sha256": "1e5b2b3bccc301748838b077c7030b0c6c147a7eefa86a2ef12343aba1558b0c",
+  "log_sha256": "82ba11665dece72e959a6006f2eaf3178571757b718b9ebafafe3f6eb1b4d57a",
   "test_count": 1,
   "test_hooks_added_only_in_temporary_copy": [],
   "interpretation": "Conditional standard-core model only; no live carrier certification. Unknown/stricter configuration must be retained."

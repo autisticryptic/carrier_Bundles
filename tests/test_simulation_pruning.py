@@ -55,10 +55,24 @@ class SimulationPruningTests(unittest.TestCase):
         self.assertTrue(decision(mixed,'lte','31026','ready')['covered'])
         self.assertFalse(decision(mixed,'vowifi','31026','ready')['covered'])
 
+    def test_lte_required_is_covered_but_wifi_and_disabled_remain_explicit(self):
+        config=standard()
+        config['ims']['security_agreement']='required'
+        config['sip']['common']['register']={'security_agreement':'required'}
+        self.assertTrue(decision(config,'lte','31026','ready')['covered'])
+        wifi=standard(True)
+        wifi['ims']['security_agreement']='required'
+        self.assertFalse(decision(wifi,'vowifi','31026','ready')['covered'])
+        for mode in ('disabled','omit','unknown',False,[]):
+            config['sip']['common']['register']['security_agreement']=mode
+            self.assertFalse(decision(config,'lte','31026','ready')['covered'])
+        config['ims']['security_agreement']='disabled'
+        config['sip']['common']['register']['security_agreement']='required'
+        self.assertFalse(decision(config,'lte','31026','ready')['covered'])
+
     def test_special_and_unmodelled_requirements_are_retained(self):
         for mutate in (
             lambda c:c['ims'].update(realm='special.example'),
-            lambda c:c['ims'].update(security_agreement='required'),
             lambda c:c['ims'].update(security_agreement='disabled'),
             lambda c:c['ims'].update(transport='tcp'),
             lambda c:c['access']['lte'].update(apn='operator-ims'),
@@ -161,7 +175,7 @@ class SimulationPruningTests(unittest.TestCase):
     def test_incomplete_or_inconsistent_simulation_evidence_fails_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);path=root/'report.json';base=report_fixture(path)
-            self.assertEqual(validate_evidence(path)['scenarios'],19)
+            self.assertEqual(validate_evidence(path)['scenarios'],21)
             for mutate in (
                 lambda d:d.update(live_network_verified=True),
                 lambda d:d['scenarios'].pop(),

@@ -5,6 +5,7 @@ from pathlib import Path, PurePosixPath
 import re
 
 EXPECTED = {
+ 'lte_required_sec_agree_first_request':True,'lte_required_does_not_override_disabled':False,
  'lte_aka_baseline':True,'wifi_aka_baseline':True,'wifi_421_cumulative':True,'wifi_494_cumulative':True,
  'wifi_without_fallback_counterexample':False,'lte_proxy_407':True,'lte_akav2_md5':True,
  'wifi_akav2_sha256':True,'lte_423_before_aka':True,'wifi_423_after_aka':True,

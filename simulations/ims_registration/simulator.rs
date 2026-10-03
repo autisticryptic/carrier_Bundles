@@ -198,6 +198,14 @@ impl ImsChannel for Peer {
             self.reply(frame, 403, "");
             return Ok(());
         }
+        if matches!(self.scenario.mode, "required_first" | "required_disabled") {
+            let required = ["Require", "Proxy-Require"].iter().all(|name|
+                header(frame, name).is_some_and(|v| v.split(',').any(|token| token.trim() == "sec-agree")));
+            if !required || header(frame, "Security-Client").is_none() {
+                self.reply(frame, 403, "");
+                return Ok(());
+            }
+        }
         if self.scenario.mode == "omit" {
             assert!(header(frame, "P-Access-Network-Info").is_none());
             assert!(header(frame, "Require").is_none());
@@ -370,7 +378,7 @@ async fn run_case(scenario: Scenario) -> Value {
         },
     )
     .unwrap();
-    let profile: &'static CarrierProfile = if scenario.mode == "omit" {
+    let profile: &'static CarrierProfile = if matches!(scenario.mode, "omit" | "required_disabled") {
         let mut p = *base;
         p.ims.register.sec_agree_mode = "disabled";
         p.ims.register.require_sec_agree_headers = false;
@@ -450,7 +458,7 @@ async fn run_case(scenario: Scenario) -> Value {
         assert_eq!(rounds, 2);
         assert_eq!(candidates.len(), 1);
     }
-    if matches!(scenario.mode, "403" | "bad_proof" | "custom_domain") {
+    if matches!(scenario.mode, "403" | "bad_proof" | "custom_domain" | "required_disabled") {
         assert_eq!(candidates.len(), 1);
     }
     json!({"id":scenario.id,"access":if scenario.wifi{"vowifi"}else{"lte"},"expected_success":scenario.expected,
@@ -464,6 +472,8 @@ async fn run_case(scenario: Scenario) -> Value {
 async fn offline_derivation_registration_matrix() {
     let cases = [
         ("lte_aka_baseline", false, "baseline", true, true),
+        ("lte_required_sec_agree_first_request", false, "required_first", true, true),
+        ("lte_required_does_not_override_disabled", false, "required_disabled", false, true),
         ("wifi_aka_baseline", true, "baseline", true, true),
         ("wifi_421_cumulative", true, "421", true, true),
         ("wifi_494_cumulative", true, "494", true, true),

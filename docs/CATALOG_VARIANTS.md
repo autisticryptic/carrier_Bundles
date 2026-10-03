@@ -95,6 +95,23 @@ python3 tools/build_variants.py /path/to/original-full.sqlite3 \
   --runtime-minimal --output-dir data/variants/new-runtime-set
 ```
 
+## 派生协商补强后的裁剪边界（2026-10-03）
+
+更新的真实代码SIP矩阵为21场景（13正例、8预期拒绝），增加LTE首包required声明和显式disabled
+不得覆盖的反例；新证据按源码摘要重新生成，不复用旧19场景报告授权新规则。
+
+筛选不再把LTE的`required`一律判为不可覆盖：标准派生LTE首包已经发送Security-Client和
+Require/Proxy-Require声明，且新正例验证严格首包要求可通过。WiFi仍为挑战驱动，不能因此把所有
+必须首包声明的WiFi策略也删掉；disabled/omit、非标准身份、特殊端点和其他未知策略继续保留。
+
+配套SimAdmin补齐了已有栈支持、同MODP2048组内的AES256/SHA512/PRFSHA256和
+AES128/SHA512/PRFSHA512组合，以及AES128/SHA512 CHILD提案；不增加DH组或传输尝试预算。
+**这不自动授权删除整个IKE策略**：证书、开通、生命周期、媒体等未证明的差异仍保留。
+
+新集合`data/variants/2026-10-03-derived-hardening/`仍是12库。真实库的实际删除数量没有增加：
+189项接入派生回退、12196项其他投影保持、NR保持。现有记录仍被其他策略保护，不为减小文件而
+忽略这些限制。源代码能力补强与扩大实际删库覆盖是不同结论。
+
 ## 什么会被删除
 
 LTE 和 VoWiFi **分别判断**：
@@ -130,7 +147,7 @@ NR/5GS 注册、NAS、5G-AKA 或 PDU session 模拟。
 事务引擎及 Digest-AKA；只替换字节通道和 SIM 返回材料，不访问设备、D-Bus 或真实网络。
 对端验证身份、URI、事务、租期和独立计算的 Digest，不能收到 REGISTER 就返回成功。
 
-当前 19 场景符合预期：12 个模拟注册成功、7 个预期拒绝。涵盖 421/494 累加兜底、407、
+当前21场景符合预期：13个模拟注册成功、8个预期拒绝。涵盖 421/494 累加兜底、407、
 AKAv1/AKAv2、423 认证前后协商、UDP 原报文重传、无关/过期消息、认证次数上限、普通 403、
 错误证明、私有域名以及明确的省略/SMS-only 保护。
 

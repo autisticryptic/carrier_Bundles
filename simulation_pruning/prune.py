@@ -43,7 +43,12 @@ def decision(config, access, plmn, status):
         return reject('unmodelled_ims_policy')
     if expand(ims.get('home_domain'))!=domain or expand(ims.get('realm',domain))!=domain:return reject('custom_ims_domain_or_realm')
     if ims.get('transport','udp') not in ('udp','auto'):return reject('explicit_transport')
-    if ims.get('security_agreement','auto')!='auto':return reject('explicit_security_policy')
+    # LTE standard derivation already declares its supported sec-agree offer
+    # in the first REGISTER; the source-backed matrix verifies this strict
+    # first-request requirement. WLAN remains challenge-driven: do not infer
+    # that every required-first WLAN policy can be replaced by a 421 retry.
+    security_modes=('auto','required') if access=='lte' else ('auto',)
+    if ims.get('security_agreement','auto') not in security_modes:return reject('explicit_security_policy')
     auth=ims.get('authentication',{})
     if not isinstance(auth,dict) or set(auth)-{'scheme','algorithm'} or auth.get('scheme')!='ims_aka' or auth.get('algorithm','AKAv1-MD5') not in ('AKAv1-MD5','AKAv2-MD5'):
         return reject('unsupported_authentication_policy')
@@ -69,6 +74,8 @@ def decision(config, access, plmn, status):
             for key,item in value.items():
                 if key=='requested_expires_seconds':
                     if type(item) is not int or not 60<=item<=86400:return reject('unsupported_register_expiry')
+                elif key=='security_agreement':
+                    if item not in security_modes:return reject('explicit_register_security_policy')
                 elif key=='always_add_sip_instance':
                     if item is not True:return reject('explicit_instance_omit')
                 else:return reject('unmodelled_register_'+key)
