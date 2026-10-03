@@ -129,11 +129,15 @@ firmware-only 包只包含基带镜像，不能生成运营商 profile；默认�
 每个来源现在有三种变体（四来源齐全时共 12 份 SQLite）：原始完整版、`*-no-icons.sqlite3`、
 `*-minimal-no-icons.sqlite3`。精简版按已验证的标准核心网模拟模型，**直接删除可由 LTE IMS /
 VoWiFi 派生兜底覆盖的接入配置**，全部接入均可删除时再移除整条 Profile；其他策略及 NR 配置
-保留。仍使用原 schema v7 / contract v1，不增加新格式或生成标记。模拟不是全网实测保证。
+保留。发布构建另启用 `--runtime-minimal`，移除仅供审计、SimAdmin运行时不读取的字段证据行，
+原始证据仍在完整版中；当前四库合计37.48→18.03MiB（约51.9%），不等于新增删除同等比例注册配置。
+仍使用原 schema v7 / contract v1，保留8表及索引，不增加新格式或生成标记。模拟不是全网实测保证。
 构建命令、删除计数与边界见 [三种构建变体](docs/CATALOG_VARIANTS.md)，
 可重复模拟脚本见 [离线注册模拟](simulations/ims_registration/README.md)。
 IPSW 原始文件仍按实际手机型号和 iOS 版本命名，例如 `carrier-bundles-iphone16promax-26.6.sqlite3`；
 Xiaomi 原始 catalog 使用 `carrier-bundles-xiaomi15ultra-xuanyuan-baseband.sqlite3`。
+**当前小米快照为APN来源，仍无已恢复的VoWiFi配置**；已修复提取器跳过后续分区的缺陷，
+完整固件重提取/实际策略导入尚未完成。原因及边界见 [小米VoWiFi调查](android/xiaomi/INVESTIGATION.md)。
 
 Pixel 在线构建必须先阅读 [Google Factory Images 条款](https://developers.google.com/android/images)，并在手动表单中确认接受。Factory ZIP、解包镜像和缓存只存在于临时 runner，不会进入 artifact；artifact 只包含最终 SQLite 和 `catalog-summary.json`。建议正式发布固定 `build_id`，不要使用 `latest`。
 

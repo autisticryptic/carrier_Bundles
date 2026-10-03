@@ -48,6 +48,40 @@
 48 项数据库测试通过；四源临时副本复核证明全部删除决策与原报告相同，七张运行时/证据表与
 已发布 minimal 内容逐项相同。本次没有重建或覆盖既有 12 库，也没有更换运行设备的 catalog。
 
+## 2026-10-03：运行时精简（已验证）
+
+新增 `--runtime-minimal`，仅在显式提供模拟报告时启用。发布集和Pixel发布工作流已使用该开关。
+默认API调用不改变；不带开关仍保留原有字段证据。
+
+在原接入筛选之后，仅清空 minimal 的 `field_evidence` 行，然后 VACUUM；表、索引及全部
+schema v7结构保留。SimAdmin要求该表存在，但运行时不读取其行。完整来源证据仍保存在
+同套完整版中，报告绑定该完整库SHA256。其他消费者若需要在线查询证据，应选full/no-icons。
+
+| 来源 | no-icons MiB | 新minimal MiB | 减少 |
+|---|---:|---:|---:|
+| IPCC | 11.1016 | 5.8125 | 47.64% |
+| iPhone 16 Pro Max | 15.0938 | 7.0195 | 53.49% |
+| Pixel | 8.4297 | 3.8398 | 54.45% |
+| Xiaomi | 2.8594 | 1.3594 | 52.46% |
+| 合计 | 37.4844 | 18.0313 | 51.90% |
+
+输出目录 `data/variants/2026-10-03-runtime-minimal/`，仍为四来源×三版本，共12库。
+此减幅主要来自去运行时审计冗余，**不是又删除了51.9%的运营商注册配置**：原614 LTE、4 VoWiFi
+删除范围不变。没有改当前设备数据库，也没有补入未经证明的小米VoWiFi数据。
+
+相对前一版minimal，6张运行配置/匹配/来源表逐项完全相同；full/no-icons与先前产物逐字节一致。
+实际SimAdmin验证618项既有派生回退、11326项其他接入投影保持，NR保持。新增消费者单测验证
+证据清空前后完整策略和身份解析不变。数据库59项测试通过，包括非预期trigger副作用拒绝。
+
+`runtime_evidence` 报告把删除证据行、JSON字节与SQLite payload分开列出，不将它们记为配置删除
+或直接声称文件字节节省；真实文件体积记录在manifest中。
+
+```bash
+python3 tools/build_variants.py /path/to/original-full.sqlite3 \
+  --simulation-report simulation_pruning/verified-evidence.json \
+  --runtime-minimal --output-dir data/variants/new-runtime-set
+```
+
 ## 什么会被删除
 
 LTE 和 VoWiFi **分别判断**：

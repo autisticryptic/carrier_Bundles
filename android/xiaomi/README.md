@@ -32,9 +32,23 @@ python3 android/xiaomi/build_baseband_catalog.py \
 ```
 
 Full OTA extraction requires `payload-dumper-go`, `erofs-utils` and 7-Zip.
-Fastboot extraction requires 7-Zip. The importer reads `CarrierConfig`, APN and
-ePDG XML files to produce `carrier_profiles`; if a ROM produces zero profiles,
-the build fails by default. Use `--allow-empty-profiles` only for diagnostics.
+Fastboot extraction requires 7-Zip. The importer reads supported PLMN-scoped
+`CarrierConfig` XML and IMS APN tables to produce `carrier_profiles`; if a ROM
+produces zero profiles, the build fails by default. Use `--allow-empty-profiles`
+only for diagnostics.
+
+For full OTAs, finding APNs in `product` does not stop inspection of `mi_ext`,
+`system_ext`, `vendor` and `odm`. Carrier-config extraction manifest v2 invalidates
+older potentially product-only inventories; this does not change catalog schema
+v7. Only protobufs under `etc/CarrierSettings` are inventoried, not unrelated
+Android feature-flag/linker/speech protobufs.
+
+**Coverage limits:** APNs alone do not prove VoWiFi support and do not supply an
+ePDG endpoint. The current importer does not decode APK resources, import
+CarrierSettings protobufs, unpack fastboot `super.img`, or semantically decode
+MCFG modem policies. A successful APN-only build can therefore still have zero
+VoWiFi profiles. See [the xuanyuan investigation](INVESTIGATION.md) for verified
+source evidence, the fixes made, and the inputs needed to finish recovery.
 
 The importer also extracts known modem-related members such as `NON-HLOS.bin`,
 `modem*.img`, `dsp*.img`, `adsp*.img`, `cdsp*.img`, `imagefv*.img` and

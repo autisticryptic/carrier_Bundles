@@ -4,7 +4,9 @@
 With validated simulation evidence, minimal directly deletes covered LTE/VoWiFi
 access configurations (or wholly covered rows). Unknown policies and NR remain.
 Without evidence the legacy optional-default elision mode is retained for API
-compatibility. Inputs are immutable; no hardware/network registration is done.
+compatibility. Opt-in runtime-minimal additionally clears audit evidence rows
+only from the pruned minimal file; the original evidence stays in full. Inputs
+are immutable; no hardware/network registration is done.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from simulation_pruning.evidence import validate_evidence  # noqa: E402
 
 PRUNING_POLICY_ID = "simadmin-simulated-standard-pruning-v1"
 POLICY_ID = "simadmin-1.1.5-optional-defaults-v1"
+RUNTIME_MINIMAL_POLICY_ID = "simadmin-v7-runtime-evidence-elision-v1"
 VARIANTS = ("full", "no-icons", "minimal-no-icons")
 # These are exact defaults of SimAdmin's carrier_catalog_v7::project_config /
 # project_vowifi_access, NOT a list of all 3GPP-standard fields. In particular,
@@ -151,12 +154,78 @@ def _check_input(path: Path) -> dict[str, Any]:
     return {**summary, "sha256": sha256(path), "bytes": path.stat().st_size}
 
 
-def _transform_variant(database: Path, variant: str, source: dict[str, Any], evidence: dict | None = None) -> dict[str, Any]:
+def _remove_runtime_evidence(connection: sqlite3.Connection, source: dict[str, Any]) -> dict[str, Any]:
+    """Remove audit rows, not registration configuration or schema objects.
+
+    SimAdmin's carrier_catalog_v7::validate_schema requires this table's
+    existence; its profile/match/projection queries never read its rows. Keep
+    all table/index definitions, including the empty B-tree roots. This policy
+    is specific to that consumer, not a claim about other catalog consumers.
+    """
+    rows, value_bytes = connection.execute(
+        """SELECT count(*), coalesce(sum(length(CAST(source_value_json AS BLOB))), 0)
+           FROM field_evidence"""
+    ).fetchone()
+    # dbstat is optional in SQLite. Its payload count includes the table and
+    # indexes, but excludes page headers/free space. Unlike file/page deltas,
+    # it does not misattribute earlier pruning's freed space to this operation.
+    try:
+        payload_bytes = connection.execute(
+            """SELECT coalesce(sum(payload), 0) FROM dbstat
+               WHERE name IN (SELECT name FROM sqlite_schema
+                              WHERE tbl_name = 'field_evidence'
+                                AND type IN ('table', 'index'))"""
+        ).fetchone()[0]
+    except sqlite3.OperationalError:
+        payload_bytes = None
+    changes_before = connection.total_changes
+    deleted = connection.execute("DELETE FROM field_evidence").rowcount
+    if deleted != rows:
+        raise ValueError("runtime evidence deletion count mismatch")
+    # Canonical v7 has no evidence-delete triggers or incoming cascades. Fail
+    # closed if a noncanonical input would change anything beyond these rows.
+    if connection.total_changes - changes_before != rows:
+        raise ValueError("runtime evidence deletion caused unexpected additional changes")
+    return {
+        "policy": RUNTIME_MINIMAL_POLICY_ID,
+        "status": "applied",
+        "table": "field_evidence",
+        "rows_removed": rows,
+        "source_value_json_bytes_removed": value_bytes,
+        "sqlite_payload_bytes_removed": payload_bytes,
+        "bytes_accounting": {
+            "source_value_json": "stored JSON bytes via SQLite CAST AS BLOB; NULL counts as zero",
+            "sqlite_payload": "dbstat table + index record payload; unavailable if null; not file-size savings",
+        },
+        "original_evidence": {"database": source["database"], "sha256": source["sha256"], "variant": "full"},
+        "safety": {
+            "scope": "after ordinary simulation pruning, minimal-no-icons only",
+            "consumer": "SimAdmin schema-v7: field_evidence required as a table, rows not read",
+            "schema_and_indexes_preserved": True,
+            "configuration_rows_changed": 0,
+            "match_rules_changed": 0,
+            "nr_fields_removed": 0,
+            "source_artifacts_and_profile_sources_unchanged": True,
+            "registration_guarantee": False,
+        },
+    }
+
+
+def _transform_variant(
+    database: Path, variant: str, source: dict[str, Any], evidence: dict | None = None,
+    *, runtime_minimal: bool = False,
+) -> dict[str, Any]:
+    if runtime_minimal and (variant != "minimal-no-icons" or evidence is None):
+        raise ValueError("runtime-minimal requires simulation-pruned minimal-no-icons")
     database.chmod(stat.S_IRUSR | stat.S_IWUSR)
     pruning_summary = None
     changes: list[dict[str, Any]] = []
     path_counts: Counter[str] = Counter()
     evidence_deselected = 0
+    runtime_evidence = {
+        "status": "not_requested", "rows_removed": 0,
+        "source_value_json_bytes_removed": 0, "sqlite_payload_bytes_removed": 0,
+    }
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA cache_size = -65536")
@@ -198,20 +267,27 @@ def _transform_variant(database: Path, variant: str, source: dict[str, Any], evi
                     "config_sha256_after": _json_sha256(config),
                     "removed": removed,
                 })
+        if runtime_minimal:
+            # Count only rows remaining AFTER whole/partial access pruning.
+            runtime_evidence = _remove_runtime_evidence(connection, source)
         old_notes = connection.execute(
             "SELECT notes FROM catalog_metadata WHERE singleton = 1"
         ).fetchone()[0]
-        provenance = encoded({
+        provenance_data = {
             "variant": variant,
-            "variant_policy": POLICY_ID,
+            "variant_policy": PRUNING_POLICY_ID if pruning_summary is not None else POLICY_ID,
             "source_release_id": source["release_id"],
             "source_database_sha256": source["sha256"],
             "pruning_evidence": evidence if pruning_summary is not None else None,
-        })
+        }
+        if runtime_minimal:
+            provenance_data["runtime_evidence"] = runtime_evidence
+        provenance = encoded(provenance_data)
         connection.execute(
             """UPDATE catalog_metadata SET release_id = ?, sealed = 1, notes = ?
                WHERE singleton = 1""",
-            (f'{source["release_id"]}+{variant}' + ('+standard-pruned' if pruning_summary is not None else ''),
+            (f'{source["release_id"]}+{variant}' + ('+standard-pruned' if pruning_summary is not None else '')
+             + ('+runtime-minimal' if runtime_minimal else ''),
              f"{old_notes}\n{provenance}" if old_notes else provenance),
         )
         connection.commit()
@@ -221,13 +297,17 @@ def _transform_variant(database: Path, variant: str, source: dict[str, Any], evi
     for table, count in source["counts"].items():
         expected = 0 if table == "visual_assets" else count
         mutable = {"carrier_profiles", "profile_match_rules", "profile_sources", "field_evidence"}
-        if pruning_summary is not None and table in mutable:
+        if runtime_minimal and table == "field_evidence":
+            if summary["counts"][table] != 0:
+                raise ValueError("runtime-minimal retained field_evidence rows")
+        elif pruning_summary is not None and table in mutable:
             if summary["counts"][table] > count:
                 raise ValueError(f"pruning unexpectedly added rows to {table}")
         elif summary["counts"][table] != expected:
             raise ValueError(f"{variant} changed {table} row coverage")
     if pruning_summary is not None:
-        return {"source_database": source["database"], "source_sha256": source["sha256"], **pruning_summary}
+        return {"source_database": source["database"], "source_sha256": source["sha256"],
+                **pruning_summary, "runtime_evidence": runtime_evidence}
     if summary["static_client_readiness"] != source["static_client_readiness"]:
         raise ValueError(f"{variant} changed readiness coverage")
     return {
@@ -241,11 +321,15 @@ def _transform_variant(database: Path, variant: str, source: dict[str, Any], evi
         "fields_removed": sum(path_counts.values()),
         "removed_by_path": dict(sorted(path_counts.items())),
         "evidence_rows_preserved_but_deselected": evidence_deselected,
+        "runtime_evidence": runtime_evidence,
         "changes": changes,
     }
 
 
-def _rewrite_variant(database: Path, variant: str, source: dict[str, Any], evidence: dict | None = None) -> dict[str, Any]:
+def _rewrite_variant(
+    database: Path, variant: str, source: dict[str, Any], evidence: dict | None = None,
+    *, runtime_minimal: bool = False,
+) -> dict[str, Any]:
     # Avoid thousands of tiny journal writes on network/Windows mounted output
     # directories. Transform in the OS temporary filesystem; only a verified,
     # closed snapshot is copied back into the unpublished output staging area.
@@ -253,7 +337,7 @@ def _rewrite_variant(database: Path, variant: str, source: dict[str, Any], evide
         working = Path(temporary) / database.name
         shutil.copyfile(database, working)
         try:
-            report = _transform_variant(working, variant, source, evidence)
+            report = _transform_variant(working, variant, source, evidence, runtime_minimal=runtime_minimal)
             shutil.copyfile(working, database)
         finally:
             if working.exists():
@@ -270,8 +354,15 @@ def build_variants(
     databases: Sequence[Path], output_dir: Path,
     *, progress: Callable[[str], None] | None = None,
     simulation_report: Path | None = None, simadmin_source: Path | None = None,
+    runtime_minimal: bool = False,
 ) -> dict[str, Any]:
-    """Publish one new directory only after every requested variant validates."""
+    """Publish validated variants; runtime_minimal is an explicit audit-row opt-in.
+
+    It requires direct simulation pruning, never changes the legacy elision
+    mode, and leaves full/no-icons byte-identical to builds without the flag.
+    """
+    if runtime_minimal and simulation_report is None:
+        raise ValueError("runtime-minimal requires a simulation report")
     notify = progress or (lambda message: None)
     evidence = validate_evidence(simulation_report, simadmin_source) if simulation_report is not None else None
     if simadmin_source is not None and simulation_report is None:
@@ -306,7 +397,10 @@ def build_variants(
                 if variant == "full":
                     _readonly(destination)
                 else:
-                    report = _rewrite_variant(destination, variant, source, evidence)
+                    report = _rewrite_variant(
+                        destination, variant, source, evidence,
+                        runtime_minimal=runtime_minimal and variant == "minimal-no-icons",
+                    )
                     if variant == "minimal-no-icons":
                         report_path = staging / f"{path.stem}-minimal-no-icons.pruning.json"
                         _write_json(report_path, report)
@@ -335,6 +429,13 @@ def build_variants(
                 "builder_sha256": sha256(Path(__file__)),
                 "optional_defaults": OPTIONAL_DEFAULTS,
                 "whole_profile_pruning": evidence is not None,
+                "runtime_minimal": {
+                    "enabled": runtime_minimal,
+                    "policy": RUNTIME_MINIMAL_POLICY_ID if runtime_minimal else None,
+                    "scope": "field_evidence rows only, after pruning, in minimal-no-icons only",
+                    "original_evidence": "preserved in byte-identical full catalog",
+                    "schema_and_indexes_preserved": True,
+                },
                 "registration_guarantee": False,
                 "notes": [
                     "Each source stays independent; no iOS/Android cross-source field merging.",
@@ -373,11 +474,13 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True, help="new output directory; never overwritten")
     parser.add_argument("--simulation-report", type=Path, help="verified real-code matrix evidence; enables direct access/profile pruning in the original v7 format")
     parser.add_argument("--simadmin-source", type=Path, help="optionally require evidence hashes to match this consumer checkout")
+    parser.add_argument("--runtime-minimal", action="store_true", help="requires --simulation-report; additionally clear field_evidence audit rows from minimal-no-icons only, preserving schema/indexes and original evidence in full")
     args = parser.parse_args()
     try:
         result = build_variants(
             args.databases, args.output_dir,
             simulation_report=args.simulation_report, simadmin_source=args.simadmin_source,
+            runtime_minimal=args.runtime_minimal,
             progress=lambda message: print(message, file=sys.stderr, flush=True),
         )
     except (OSError, ValueError, sqlite3.Error) as error:
@@ -386,6 +489,11 @@ def main() -> None:
         print(f'{entry["source"]["database"]}: 3 variants; '
               f'{entry["minimal_elision"]["access_sections_removed"]} access configs / {entry["minimal_elision"]["profiles_removed"]} profiles removed; '
               f'{entry["variants"]["minimal-no-icons"]["counts"]["carrier_profiles"]} profiles retained')
+        runtime = entry["minimal_elision"]["runtime_evidence"]
+        if runtime["status"] == "applied":
+            print(f'  Runtime audit evidence only: {runtime["rows_removed"]} rows / '
+                  f'{runtime["source_value_json_bytes_removed"]} source JSON bytes removed; '
+                  'no additional configuration or match changes; original evidence retained in full')
     print(f"Verified catalogs, pruning reports and SHA256SUMS: {args.output_dir}")
 
 

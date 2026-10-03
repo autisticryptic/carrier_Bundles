@@ -28,6 +28,9 @@ MODEM_MEMBER_RE = re.compile(
 USER_AGENT = "carrier-bundles-xiaomi-extractor/0.1"
 MANIFEST_NAME = "xiaomi-baseband-manifest.json"
 CONFIG_MANIFEST_NAME = "xiaomi-carrier-config-manifest.json"
+# v1 inventories can be product/APN-only because extraction stopped at the
+# first matching file. They must not bypass the broader partition scan.
+CONFIG_MANIFEST_SCHEMA = "carrier-bundles-xiaomi-carrier-config-manifest-v2"
 CONFIG_PRIMARY_PAYLOAD_PARTITIONS = ("product",)
 CONFIG_FALLBACK_PAYLOAD_PARTITIONS = ("mi_ext", "system_ext", "vendor", "odm")
 MODEM_PAYLOAD_PARTITIONS = (
@@ -254,15 +257,21 @@ def _cached_config(
         document = json.loads(manifest.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if not isinstance(document, dict) or document.get("rom") != _rom_cache_key(rom_path):
+    if (
+        not isinstance(document, dict)
+        or document.get("schema") != CONFIG_MANIFEST_SCHEMA
+        or document.get("rom") != _rom_cache_key(rom_path)
+    ):
         return None
     rom_sha256 = document.get("rom_sha256")
     raw_files = document.get("config_files")
     raw_carrier_settings_dir = document.get("carrier_settings_dir")
     if not isinstance(rom_sha256, str) or not isinstance(raw_files, list):
         return None
-    files = tuple(Path(item) for item in raw_files if isinstance(item, str))
-    if not files or any(not item.is_file() for item in files):
+    if any(not isinstance(item, str) for item in raw_files):
+        return None
+    files = tuple(Path(item) for item in raw_files)
+    if not files or files != _collect_config_files(output_dir):
         return None
     carrier_settings_dir = (
         Path(raw_carrier_settings_dir)
@@ -287,7 +296,7 @@ def _write_config_manifest(
     manifest.write_text(
         json.dumps(
             {
-                "schema": "carrier-bundles-xiaomi-carrier-config-manifest-v1",
+                "schema": CONFIG_MANIFEST_SCHEMA,
                 "rom": _rom_cache_key(config.rom_path),
                 "rom_sha256": config.rom_sha256,
                 "config_files": [str(path) for path in config.config_files],
@@ -513,10 +522,7 @@ def _extract_config_from_partition(image: Path, output_dir: Path) -> list[Path]:
         for path in sorted(extracted.rglob("*"))
         if path.is_file()
         and path.resolve() not in before
-        and (
-            path.suffix.casefold() == ".pb"
-            or CONFIG_MEMBER_RE.search(str(path.relative_to(extracted)))
-        )
+        and _partition_member_matches(str(path.relative_to(extracted)))
     ]
 
 
@@ -532,10 +538,7 @@ def _collect_config_files(root_dir: Path) -> tuple[Path, ...]:
         path
         for path in root_dir.rglob("*")
         if path.is_file()
-        and (
-            path.suffix.casefold() == ".pb"
-            or CONFIG_MEMBER_RE.search(str(path.relative_to(root_dir)))
-        )
+        and _partition_member_matches(str(path.relative_to(root_dir)))
     ]
     return tuple(sorted(files, key=lambda item: str(item).casefold()))
 
@@ -552,21 +555,21 @@ def extract_xiaomi_carrier_configs(
 
     if zipfile.is_zipfile(rom_path):
         _copy_zip_config_members(rom_path, output_dir)
-        if not _collect_config_files(output_dir):
-            with zipfile.ZipFile(rom_path) as archive:
-                has_payload = any(info.filename == "payload.bin" for info in archive.infolist())
-            if has_payload:
-                for partitions in (
-                    CONFIG_PRIMARY_PAYLOAD_PARTITIONS,
-                    CONFIG_FALLBACK_PAYLOAD_PARTITIONS,
+        with zipfile.ZipFile(rom_path) as archive:
+            has_payload = any(info.filename == "payload.bin" for info in archive.infolist())
+        if has_payload:
+            # APNs in product (or loose ZIP members) do not imply that WFC
+            # policy/ePDG settings have been found. Inspect every config
+            # partition instead of treating the first file as complete coverage.
+            for partitions in (
+                CONFIG_PRIMARY_PAYLOAD_PARTITIONS,
+                CONFIG_FALLBACK_PAYLOAD_PARTITIONS,
+            ):
+                for image in _extract_zip_payload_partitions(
+                    rom_path, output_dir, partitions
                 ):
-                    for image in _extract_zip_payload_partitions(
-                        rom_path, output_dir, partitions
-                    ):
-                        materialized = _materialize_sparse_image(image, output_dir / "raw")
-                        _extract_config_from_partition(materialized, output_dir / "extracted")
-                    if _collect_config_files(output_dir):
-                        break
+                    materialized = _materialize_sparse_image(image, output_dir / "raw")
+                    _extract_config_from_partition(materialized, output_dir / "extracted")
     else:
         for image in _extract_tar_partition_images(rom_path, output_dir):
             if image.name.casefold() == "super.img":

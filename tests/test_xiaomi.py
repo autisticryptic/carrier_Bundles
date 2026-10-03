@@ -75,7 +75,7 @@ class XiaomiBasebandTests(unittest.TestCase):
                     b"public dsp firmware",
                 )
                 archive.writestr(
-                    "payload.bin",
+                    "META-INF/com/android/metadata",
                     b"not part of the modem inventory",
                 )
                 archive.writestr(

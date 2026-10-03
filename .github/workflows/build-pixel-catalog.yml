@@ -105,7 +105,7 @@ jobs:
           python3 tools/build_variants.py
           "$RUNNER_TEMP/carrier-bundles-pixel.sqlite3"
           --output-dir "$RUNNER_TEMP/catalog-variants"
-          --simulation-report simulation_pruning/verified-evidence.json
+          --simulation-report simulation_pruning/verified-evidence.json --runtime-minimal
 
       - name: Upload catalog artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

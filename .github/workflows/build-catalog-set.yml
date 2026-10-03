@@ -279,7 +279,7 @@ jobs:
             catalogs+=(catalog-sources/carrier-bundles-xiaomi15ultra-xuanyuan-baseband.sqlite3)
           fi
           python3 tools/build_variants.py "${catalogs[@]}" --output-dir catalog-set \
-            --simulation-report simulation_pruning/verified-evidence.json
+            --simulation-report simulation_pruning/verified-evidence.json --runtime-minimal
           find catalog-sources -maxdepth 1 -type f ! -name '*.sqlite3' ! -name 'SHA256SUMS*' \
             -exec cp '{}' catalog-set/ \;
           {
