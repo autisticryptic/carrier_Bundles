@@ -8,7 +8,7 @@ import re
 import sqlite3
 import xml.etree.ElementTree as ET
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -40,6 +40,11 @@ RELEVANT_KEY_PARTS = (
     "emergency",
     "xcap",
 )
+PROJECTED_KEYS = {
+    'carrier_wfc_ims_available_bool', 'carrier_volte_available_bool', 'carrier_vonr_available_bool',
+    'carrier_supports_ss_over_ut_bool', 'carrier_vt_available_bool', 'iwlan.epdg_static_address_string',
+    'ims.sip_over_ipsec_enabled_bool', 'ims.sip_preferred_transport_int', 'ims.registration_expiry_timer_sec_int',
+}
 AUTH_TYPE = {
     "-1": "unspecified",
     "0": "none",
@@ -55,6 +60,9 @@ class XiaomiXmlConfig:
     source_path: str
     plmn: str
     values: dict[str, Any]
+    origins: dict[str, dict[str, Any]] = field(default_factory=dict)
+    uncertain_keys: tuple[str, ...] = ()
+    apk_summary: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -105,7 +113,7 @@ def _relative(path: Path, root: Path) -> str:
 
 
 def _plmn_from_text(value: str) -> str | None:
-    match = re.search(r"(?<!\d)([0-9]{5,6})(?!\d)", value)
+    match = re.fullmatch(r"carrier_config_(?:mccmnc_)?([0-9]{5,6})\.xml", value, re.IGNORECASE)
     if not match or match.group(1).startswith("000"):
         return None
     return match.group(1)
@@ -141,7 +149,7 @@ def _int(value: str | None) -> int | None:
 
 
 def _scalar_text(element: ET.Element) -> str | None:
-    return element.get("value") or (element.text.strip() if element.text else None)
+    return element.get("value") if "value" in element.attrib else (element.text.strip() if element.text else None)
 
 
 def _parse_value(element: ET.Element) -> Any:
@@ -152,7 +160,8 @@ def _parse_value(element: ET.Element) -> Any:
         return _int(_scalar_text(element))
     if kind == "string":
         value = _scalar_text(element)
-        return value.strip() if isinstance(value, str) and value.strip() else None
+        # Explicit empty string clears an inherited endpoint/policy.
+        return value.strip() if isinstance(value, str) else ""
     if kind in {"int-array", "integer-array"}:
         return [
             parsed
@@ -180,16 +189,20 @@ def _parse_carrier_config(path: Path, root_dir: Path) -> XiaomiXmlConfig | None:
         or _mcc_mnc(root.get("mcc"), root.get("mnc"))
         or _plmn_from_text(path.name)
     )
-    if plmn is None:
+    if plmn is None or not re.fullmatch(r'[0-9]{5,6}', plmn):
         return None
-    values: dict[str, Any] = {}
-    for element in root.iter():
-        name = element.get("name") or element.get("key")
-        if not name:
-            continue
-        value = _parse_value(element)
-        if value is not None:
-            values[name] = value
+    if _tag(root) not in ('carrier_config', 'carrier_config_list'):
+        return None
+    from .apk_policy import CompiledPolicy, document_blocks
+    from .apk_resources import ApkXmlDocument
+    digest = digest_file(path)
+    document = ApkXmlDocument(path.name, root, path, digest, digest)
+    policy = CompiledPolicy(plmn)
+    for block in document_blocks(document, plmn):
+        if 'include' in block.attributes:
+            raise ValueError('loose standalone CarrierConfig includes need explicit resolution')
+        policy.apply(block)
+    values = {key:value for key,value in policy.values.items() if key not in policy.uncertain}
     if not values:
         return None
     return XiaomiXmlConfig(
@@ -207,6 +220,11 @@ def _apn_types(value: str | None) -> set[str]:
 
 
 def _apn_applies(apn: XiaomiApn, access_kind: str) -> bool:
+    # PLMN-wide profiles must never adopt a SIM-specific APN just because its
+    # APN string happens to equal the generic one. Keep the source, but do not
+    # flatten unrepresented MVNO/carrier-ID selectors into a public PLMN rule.
+    if apn.values.get("selectors"):
+        return False
     mask = apn.values.get("bearer_bitmask")
     if not isinstance(mask, str) or not mask.strip() or mask.strip() == "0":
         return True
@@ -247,6 +265,9 @@ def _parse_apns(path: Path, root_dir: Path) -> list[XiaomiApn]:
             "mtu": _int(element.get("mtu")),
             "bearer_bitmask": element.get("bearer_bitmask") or element.get("bearer"),
         }
+        selectors = {key: element.get(key) for key in ("mvno_type", "mvno_match_data", "carrier_id") if element.get(key)}
+        if selectors:
+            values["selectors"] = selectors
         if values["apn"]:
             result.append(
                 XiaomiApn(
@@ -295,6 +316,21 @@ def load_xiaomi_xml_configs(
             parsed = _parse_carrier_config(path, extracted.root_dir)
             if parsed is not None:
                 configs.append(parsed)
+    if any(path.suffix.casefold() == '.apk' for path in extracted.config_files):
+        from .apk_policy import load_apk_policies
+        policies, summary = load_apk_policies(extracted.config_files, {a.plmn for a in apns}, extracted.root_dir)
+        for policy in policies:
+            # Origins carry exact APK/member/block identity, not a fabricated
+            # carrier-ID mapping or a flattened list of every default version.
+            origin = next(iter(policy.origins.values()), None)
+            if origin is None:
+                continue
+            configs.append(XiaomiXmlConfig(
+                path=Path(origin['path']),
+                source_path=_relative(Path(origin['path']), extracted.root_dir) + '!' + origin['member'],
+                plmn=policy.plmn, values=policy.values, origins=policy.origins,
+                uncertain_keys=tuple(sorted(set(policy.uncertain) & PROJECTED_KEYS)), apk_summary=summary,
+            ))
     return configs, apns
 
 
@@ -406,6 +442,7 @@ def _build_config(
     plmn: str,
     *,
     include_standard_derived: bool,
+    uncertain_keys: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     volte = _config_bool(values, "carrier_volte_available_bool")
     vonr = _config_bool(values, "carrier_vonr_available_bool")
@@ -444,7 +481,7 @@ def _build_config(
                     "roaming_scope": "home",
                 }
             )
-        elif vowifi is True and include_standard_derived:
+        elif vowifi is True and include_standard_derived and 'iwlan.epdg_static_address_string' not in uncertain_keys:
             endpoints.append(
                 {
                     "address": _epdg(plmn),
@@ -523,7 +560,7 @@ def _build_config(
             }
         },
         "services": {
-            "ims": bool(apns),
+            "ims": bool(apns) or vowifi is True,
             "volte": volte,
             "vonr": vonr,
             "vowifi": vowifi,
@@ -531,6 +568,9 @@ def _build_config(
             "vilte": _config_bool(values, "carrier_vt_available_bool"),
         },
     }
+    if not include_standard_derived:
+        for key in ('home_domain', 'realm', 'authentication', 'identity_templates'):
+            config['ims'].pop(key, None)
     return compact(config)
 
 
@@ -540,8 +580,10 @@ def _has_relevant_values(values: dict[str, Any]) -> bool:
 
 def _merge_values(configs: list[XiaomiXmlConfig]) -> dict[str, Any]:
     result: dict[str, Any] = {}
-    for config in sorted(configs, key=lambda item: item.source_path.casefold()):
+    for config in sorted(configs, key=lambda item: (bool(item.origins), item.source_path.casefold())):
         result.update(config.values)
+        for key in config.uncertain_keys:
+            result.pop(key, None)
     return result
 
 
@@ -632,6 +674,7 @@ def import_xiaomi_carrier_config_catalog(
                     plmn_apns,
                     plmn,
                     include_standard_derived=include_standard_derived,
+                    uncertain_keys=tuple({key for item in plmn_configs for key in item.uncertain_keys}),
                 )
             )
             profile_id = f"profile-{carrier_id}-{plmn}-{hashlib.sha256(plmn.encode()).hexdigest()[:10]}"
@@ -688,25 +731,32 @@ def import_xiaomi_carrier_config_catalog(
                 source_key_path="plmn",
                 value=plmn,
             )
-            for section in ("access", "sip", "services"):
-                value = json.loads(raw_config).get(section)
-                if value:
-                    _evidence(
-                        connection,
-                        stats=stats,
-                        profile_id=profile_id,
-                        source_id=config_source_id,
-                        target_kind="config",
-                        target_path=f"/{section}",
-                        source_path=primary_source_path,
-                        source_key_path=section,
-                        value=value,
-                    )
+            # Mixed normalized sections are not wholly extracted OR wholly
+            # standards-derived. Record source APN leaves and derived discovery
+            # leaves separately; never attribute carrier policy to 3GPP.
+            normalized = json.loads(raw_config)
+            for kind in ('lte', 'nr', 'vowifi'):
+                selected_apn = _choose_apn(plmn_apns, kind)
+                access_config = normalized.get('access', {}).get(kind, {})
+                if selected_apn is not None:
+                    for key, value in selected_apn.values.items():
+                        output_key = 'dnn' if kind == 'nr' and key == 'apn' else key
+                        if output_key not in access_config or output_key == 'pcscf_discovery':
+                            continue
+                        _evidence(connection, stats=stats, profile_id=profile_id, source_id=config_source_id,
+                            target_kind='config', target_path=f'/access/{kind}/{output_key}',
+                            source_path=selected_apn.source_path, source_key_path='apn.'+key, value=value)
+                if standard_source_id is not None and kind in ('lte', 'nr') and 'pcscf_discovery' in access_config:
+                    _evidence(connection, stats=stats, profile_id=profile_id, source_id=standard_source_id,
+                        target_kind='config', target_path=f'/access/{kind}/pcscf_discovery',
+                        source_path='3GPP TS 24.229', source_key_path='standard PCO/ePCO discovery',
+                        value=access_config['pcscf_discovery'], evidence_kind='standard_derived', confidence=60)
             if standard_source_id is not None:
                 normalized = json.loads(raw_config)
                 for pointer, value in (
                     ("/ims/home_domain", normalized["ims"]["home_domain"]),
                     ("/ims/realm", normalized["ims"]["realm"]),
+                    ("/ims/authentication", normalized["ims"]["authentication"]),
                     ("/ims/identity_templates", normalized["ims"]["identity_templates"]),
                 ):
                     _evidence(
@@ -722,6 +772,42 @@ def import_xiaomi_carrier_config_catalog(
                         evidence_kind="standard_derived",
                         confidence=60,
                     )
+            # Preserve exact raw APK values separately from normalized/derived
+            # access parameters. A derived ePDG is not an extracted hostname.
+            targets = {
+                'carrier_wfc_ims_available_bool': '/services/vowifi',
+                'carrier_volte_available_bool': '/services/volte',
+                'carrier_vonr_available_bool': '/services/vonr',
+                'carrier_supports_ss_over_ut_bool': '/services/ut_xcap',
+                'carrier_vt_available_bool': '/services/vilte',
+                'iwlan.epdg_static_address_string': '/access/vowifi/epdg',
+                'ims.sip_over_ipsec_enabled_bool': '/ims/security_agreement',
+                'ims.sip_preferred_transport_int': '/ims/transport',
+                'ims.registration_expiry_timer_sec_int': '/sip/common/register/requested_expires_seconds',
+            }
+            for item in plmn_configs:
+                for key, origin in item.origins.items():
+                    if key not in targets or key not in values:
+                        continue
+                    source_path = _relative(Path(origin['path']), extracted.root_dir) + '!' + origin['member']
+                    connection.execute(
+                        '''INSERT OR IGNORE INTO profile_sources(profile_id,source_id,source_profile_key,source_path,contribution_kind,precedence)
+                           VALUES (?,?,?,?, 'carrier_policy',200)''',
+                        (profile_id,config_source_id,plmn,source_path))
+                    _evidence(connection, stats=stats, profile_id=profile_id, source_id=config_source_id,
+                        target_kind='config', target_path=targets[key], source_path=source_path,
+                        source_key_path=json.dumps({k:v for k,v in origin.items() if k != 'path'}, sort_keys=True),
+                        value=values[key])
+            normalized = json.loads(raw_config)
+            if standard_source_id is not None and normalized.get('access', {}).get('vowifi'):
+                wifi = normalized['access']['vowifi']
+                for key in ('epdg', 'pcscf_discovery', 'ike'):
+                    if key not in wifi or (key == 'epdg' and _config_text(values, 'iwlan.epdg_static_address_string')):
+                        continue
+                    _evidence(connection, stats=stats, profile_id=profile_id, source_id=standard_source_id,
+                        target_kind='config', target_path='/access/vowifi/' + key,
+                        source_path='3GPP TS 23.003/24.229/33.203', source_key_path='standard derivation',
+                        value=wifi[key], evidence_kind='standard_derived', confidence=60)
             stats.xml_configs_imported += len(plmn_configs)
             stats.ims_apns_imported += len(plmn_apns)
 
@@ -736,6 +822,9 @@ def import_xiaomi_carrier_config_catalog(
             "rom_sha256": extracted.rom_sha256,
             "config_files": [_relative(path, extracted.root_dir) for path in extracted.config_files],
             "profiles_imported": stats.profiles_imported,
+            "apk_policy": next((c.apk_summary for c in configs if c.apk_summary), None),
+            "conditional_values_withheld": {c.plmn: list(c.uncertain_keys) for c in configs if c.origins and c.uncertain_keys},
+            "sim_specific_apns_not_generalized": sum(bool(a.values.get('selectors')) for a in apns),
         }
         connection.execute(
             "UPDATE catalog_metadata SET notes = ? WHERE singleton = 1",

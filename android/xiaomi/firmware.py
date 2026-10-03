@@ -28,11 +28,11 @@ MODEM_MEMBER_RE = re.compile(
 USER_AGENT = "carrier-bundles-xiaomi-extractor/0.1"
 MANIFEST_NAME = "xiaomi-baseband-manifest.json"
 CONFIG_MANIFEST_NAME = "xiaomi-carrier-config-manifest.json"
-# v1 inventories can be product/APN-only because extraction stopped at the
-# first matching file. They must not bypass the broader partition scan.
-CONFIG_MANIFEST_SCHEMA = "carrier-bundles-xiaomi-carrier-config-manifest-v2"
+# v1 could stop at product APNs; v2 omitted APK resources and system. Neither
+# inventory may bypass the broader scan. This is not the catalog's v7 schema.
+CONFIG_MANIFEST_SCHEMA = "carrier-bundles-xiaomi-carrier-config-manifest-v3"
 CONFIG_PRIMARY_PAYLOAD_PARTITIONS = ("product",)
-CONFIG_FALLBACK_PAYLOAD_PARTITIONS = ("mi_ext", "system_ext", "vendor", "odm")
+CONFIG_FALLBACK_PAYLOAD_PARTITIONS = ("mi_ext", "system_ext", "vendor", "odm", "system")
 MODEM_PAYLOAD_PARTITIONS = (
     "bluetooth",
     "dsp",
@@ -41,15 +41,23 @@ MODEM_PAYLOAD_PARTITIONS = (
     "modemfirmware",
 )
 PARTITION_IMAGE_RE = re.compile(
-    r"(^|/)images/(?P<name>product|system_ext|vendor|odm|super)\.img$",
+    r"(^|/)images/(?P<name>product|mi_ext|system_ext|vendor|odm|system|super)\.img$",
     re.IGNORECASE,
+)
+# These are carrier configuration package families, not arbitrary APKs whose
+# names contain 'carrier' (CarrierServices, telephony UIs, etc. are excluded).
+_CARRIER_OVERLAY_NAME = r"(?:MiuiCarrierConfigOverlay[A-Za-z0-9_]*|CarrierConfigRes[A-Za-z0-9_]+|CarrierConfigOverlay[A-Za-z0-9_]*)"
+_CARRIER_APK_PATH = (
+    r"(?:priv-app|app)/CarrierConfig/CarrierConfig\.apk|"
+    rf"overlay/(?:{_CARRIER_OVERLAY_NAME}/)?{_CARRIER_OVERLAY_NAME}\.apk"
 )
 CONFIG_MEMBER_RE = re.compile(
     r"(^|/)(?:"
     r"etc/CarrierSettings/[^/]+\.pb|"
     r"etc/CarrierConfig/[^/]+\.xml|"
-    r"etc/(?:apns-conf|fiveG-apns-conf|epdg_apns_conf)\.xml|"
-    r"etc/[^/]*carrier[^/]*config[^/]*\.xml"
+    r"etc/(?:apns-conf|fiveG-apns-conf|epdg_apns_conf|vendor_miui|vendor_device)\.xml|"
+    r"etc/[^/]*carrier[^/]*config[^/]*\.xml|"
+    + _CARRIER_APK_PATH +
     r")$",
     re.IGNORECASE,
 )
@@ -145,8 +153,8 @@ def _safe_member_output(output_dir: Path, member_name: str) -> Path:
 
 
 def _safe_relative_output(output_dir: Path, member_name: str) -> Path:
-    parts = [part for part in Path(member_name).parts if part not in {"", ".", ".."}]
-    if not parts:
+    parts = member_name.split("/")
+    if any(part in {"", ".", ".."} for part in parts) or "\\" in member_name or ":" in member_name:
         raise RuntimeError(f"unsafe archive member name: {member_name}")
     output = (output_dir / Path(*parts)).resolve()
     output.relative_to(output_dir.resolve())
@@ -273,6 +281,8 @@ def _cached_config(
     files = tuple(Path(item) for item in raw_files)
     if not files or files != _collect_config_files(output_dir):
         return None
+    if document.get("apk_artifacts") != _config_apk_artifacts(output_dir, files):
+        return None
     carrier_settings_dir = (
         Path(raw_carrier_settings_dir)
         if isinstance(raw_carrier_settings_dir, str)
@@ -289,6 +299,19 @@ def _cached_config(
     )
 
 
+def _config_apk_artifacts(root_dir: Path, files: tuple[Path, ...]) -> list[dict[str, object]]:
+    """Keep partition-relative APK locations and hashes beside the inventory.
+
+    ZIP member-level provenance is supplied by apk_resources.iter_apk_xml; APK
+    extraction retains the complete partition path instead of flattening names.
+    """
+    return [
+        {"relative_path": path.relative_to(root_dir).as_posix(),
+         "sha256": digest_file(path), "size": path.stat().st_size}
+        for path in files if path.suffix.casefold() == ".apk"
+    ]
+
+
 def _write_config_manifest(
     output_dir: Path, config: ExtractedXiaomiCarrierConfig
 ) -> None:
@@ -300,6 +323,7 @@ def _write_config_manifest(
                 "rom": _rom_cache_key(config.rom_path),
                 "rom_sha256": config.rom_sha256,
                 "config_files": [str(path) for path in config.config_files],
+                "apk_artifacts": _config_apk_artifacts(output_dir, config.config_files),
                 "carrier_settings_dir": (
                     str(config.carrier_settings_dir)
                     if config.carrier_settings_dir is not None
@@ -347,7 +371,6 @@ def _extract_payload_partitions(
     command = [
         dumper,
         "-q",
-        "-no-verify",
         "-p",
         ",".join(partitions),
         "-o",
@@ -410,6 +433,8 @@ def _materialize_sparse_image(image: Path, output_dir: Path) -> Path:
 
 def _partition_member_matches(relative_path: str) -> bool:
     normalized = relative_path.replace("\\", "/").lstrip("/")
+    if any(part in {"", ".", ".."} for part in normalized.split("/")):
+        return False
     return CONFIG_MEMBER_RE.search(normalized) is not None
 
 
@@ -427,27 +452,45 @@ def _erofs_ls(image: Path, directory: str) -> list[tuple[int, str]]:
         if len(columns) != 3 or not columns[0].isdigit() or not columns[1].isdigit():
             continue
         name = columns[2]
-        if name not in {".", ".."}:
+        if name not in {"", ".", ".."} and not any(char in name for char in ("/", "\\", "\x00")):
             result.append((int(columns[1]), name))
     return result
 
 
 def _erofs_config_paths(image: Path) -> list[str]:
     paths: list[str] = []
-    etc_entries = _erofs_ls(image, "/etc")
-    if not etc_entries:
-        return paths
-    for entry_type, name in etc_entries:
-        relative_path = f"etc/{name}"
-        if entry_type == 1 and _partition_member_matches(relative_path):
-            paths.append(f"/{relative_path}")
-    for directory, suffixes in {
-        "/etc/CarrierConfig": (".xml",),
-        "/etc/CarrierSettings": (".pb",),
-    }.items():
-        for entry_type, name in _erofs_ls(image, directory):
-            if entry_type == 1 and name.casefold().endswith(suffixes):
-                paths.append(f"{directory}/{name}")
+    # System images may have a system-as-root prefix; every other partition
+    # places etc/app/priv-app/overlay at its filesystem root.
+    partition = image.stem.split(".")[0]
+    prefixes = ("", "/system") if partition == "system" else ("", "/product") if partition == "mi_ext" else ("",)
+    for prefix in prefixes:
+        for entry_type, name in _erofs_ls(image, f"{prefix}/etc"):
+            relative_path = f"{prefix}/etc/{name}"
+            if entry_type == 1 and _partition_member_matches(relative_path):
+                paths.append(relative_path)
+        for directory, suffixes in {
+            f"{prefix}/etc/CarrierConfig": (".xml",),
+            f"{prefix}/etc/CarrierSettings": (".pb",),
+        }.items():
+            for entry_type, name in _erofs_ls(image, directory):
+                if entry_type == 1 and name.casefold().endswith(suffixes):
+                    paths.append(f"{directory}/{name}")
+        # Do not recursively inspect or extract unrelated applications. Known
+        # base directories and dynamically discovered carrier overlay families
+        # cover both flat overlay APKs and overlay/<package>/<package>.apk.
+        directories = [f"{prefix}/{base}/CarrierConfig" for base in ("app", "priv-app")]
+        overlay_dir = f"{prefix}/overlay"
+        for entry_type, name in _erofs_ls(image, overlay_dir):
+            source_path = f"{overlay_dir}/{name}"
+            if entry_type == 1 and _partition_member_matches(source_path):
+                paths.append(source_path)
+            elif entry_type == 2 and re.fullmatch(_CARRIER_OVERLAY_NAME, name, re.IGNORECASE):
+                directories.append(source_path)
+        for directory in directories:
+            for entry_type, name in _erofs_ls(image, directory):
+                source_path = f"{directory}/{name}"
+                if entry_type == 1 and _partition_member_matches(source_path):
+                    paths.append(source_path)
     return sorted(set(paths), key=str.casefold)
 
 
@@ -455,7 +498,12 @@ def _extract_erofs_config_from_partition(image: Path, output_dir: Path) -> list[
     dumper = shutil.which("dump.erofs")
     if dumper:
         result: list[Path] = []
-        for source_path in _erofs_config_paths(image):
+        source_paths = _erofs_config_paths(image)
+        # In particular, do not unpack an entire system partition merely
+        # because it contains none of the selected configuration packages.
+        if not source_paths:
+            return []
+        for source_path in source_paths:
             output = _safe_relative_output(output_dir / image.stem, source_path.lstrip("/"))
             output.parent.mkdir(parents=True, exist_ok=True)
             temporary = output.with_suffix(output.suffix + ".part")
@@ -513,8 +561,24 @@ def _extract_config_from_partition(image: Path, output_dir: Path) -> list[Path]:
         "etc/apns-conf.xml",
         "etc/fiveG-apns-conf.xml",
         "etc/epdg_apns_conf.xml",
+        "etc/vendor_miui.xml",
+        "etc/vendor_device.xml",
+        "product/etc/vendor_miui.xml",
+        "product/etc/vendor_device.xml",
         "etc/*carrier*config*.xml",
     ]
+    patterns += [
+        "app/CarrierConfig/CarrierConfig.apk",
+        "priv-app/CarrierConfig/CarrierConfig.apk",
+        "overlay/MiuiCarrierConfigOverlay*.apk",
+        "overlay/CarrierConfigRes*.apk",
+        "overlay/CarrierConfigOverlay*.apk",
+        "overlay/MiuiCarrierConfigOverlay*/MiuiCarrierConfigOverlay*.apk",
+        "overlay/CarrierConfigRes*/CarrierConfigRes*.apk",
+        "overlay/CarrierConfigOverlay*/CarrierConfigOverlay*.apk",
+    ]
+    if image.stem.split(".")[0] == "system":
+        patterns += [f"system/{pattern}" for pattern in patterns]
     command = [seven_zip, "x", "-y", "-aoa", f"-o{extracted}", str(image), *patterns]
     subprocess.run(command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return [

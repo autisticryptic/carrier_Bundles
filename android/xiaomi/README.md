@@ -38,17 +38,28 @@ produces zero profiles, the build fails by default. Use `--allow-empty-profiles`
 only for diagnostics.
 
 For full OTAs, finding APNs in `product` does not stop inspection of `mi_ext`,
-`system_ext`, `vendor` and `odm`. Carrier-config extraction manifest v2 invalidates
-older potentially product-only inventories; this does not change catalog schema
+`system_ext`, `vendor` and `odm`. Carrier-config extraction manifest v3 invalidates
+older product-only or APK-incomplete inventories; this does not change catalog schema
 v7. Only protobufs under `etc/CarrierSettings` are inventoried, not unrelated
 Android feature-flag/linker/speech protobufs.
 
-**Coverage limits:** APNs alone do not prove VoWiFi support and do not supply an
-ePDG endpoint. The current importer does not decode APK resources, import
-CarrierSettings protobufs, unpack fastboot `super.img`, or semantically decode
-MCFG modem policies. A successful APN-only build can therefore still have zero
-VoWiFi profiles. See [the xuanyuan investigation](INVESTIGATION.md) for verified
-source evidence, the fixes made, and the inputs needed to finish recovery.
+**Full-OTA validation completed:** the fixed pinned ROM was downloaded and
+rebuilt locally. Its CarrierConfig APK/resources now produce **380 statically
+ready VoWiFi profiles**, all accepted by the actual SimAdmin catalog consumer.
+See [full OTA validation](FULL_OTA_VALIDATION.md) for source hashes, selected
+includes/overlay order, negative tests and derivation boundaries. This is not
+live registration or subscription-provisioning verification.
+
+The bounded stdlib APK XML decoder imports the verified static resource chain;
+only referenced default assets are merged. Unknown carrier-ID/SIM predicates
+are not broadened to public PLMN rules. WFC flags come from source evidence;
+standard fallback ePDG/IKE values remain labelled `standard_derived`.
+
+**Coverage limits:** APNs alone do not prove VoWiFi support. CarrierSettings
+protobuf semantics, fastboot `super.img`, MCFG record selection, dynamic
+opconfig/APEX updates and all carrier-ID/MVNO combinations remain unimplemented.
+The earlier [xuanyuan investigation](INVESTIGATION.md) is retained as history;
+its missing-input/zero-VoWiFi status is superseded by the full-OTA validation.
 
 The importer also extracts known modem-related members such as `NON-HLOS.bin`,
 `modem*.img`, `dsp*.img`, `adsp*.img`, `cdsp*.img`, `imagefv*.img` and

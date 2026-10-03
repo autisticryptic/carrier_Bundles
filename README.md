@@ -136,8 +136,10 @@ VoWiFi 派生兜底覆盖的接入配置**，全部接入均可删除时再移�
 可重复模拟脚本见 [离线注册模拟](simulations/ims_registration/README.md)。
 IPSW 原始文件仍按实际手机型号和 iOS 版本命名，例如 `carrier-bundles-iphone16promax-26.6.sqlite3`；
 Xiaomi 原始 catalog 使用 `carrier-bundles-xiaomi15ultra-xuanyuan-baseband.sqlite3`。
-**当前小米快照为APN来源，仍无已恢复的VoWiFi配置**；已修复提取器跳过后续分区的缺陷，
-完整固件重提取/实际策略导入尚未完成。原因及边界见 [小米VoWiFi调查](android/xiaomi/INVESTIGATION.md)。
+**小米完整固件已本地重提取，恢复380条静态可用VoWiFi配置**：正确读取CarrierConfig APK、
+实际引用的默认文件和覆盖资源，保留禁用/条件匹配边界；实际SimAdmin消费者加载通过。
+WFC开关有固件证据，标准派生ePDG/IKE不冒充提取值或实网注册成功。
+输入摘要、97项测试及新产物见 [小米完整OTA验收](android/xiaomi/FULL_OTA_VALIDATION.md)。
 
 Pixel 在线构建必须先阅读 [Google Factory Images 条款](https://developers.google.com/android/images)，并在手动表单中确认接受。Factory ZIP、解包镜像和缓存只存在于临时 runner，不会进入 artifact；artifact 只包含最终 SQLite 和 `catalog-summary.json`。建议正式发布固定 `build_id`，不要使用 `latest`。
 

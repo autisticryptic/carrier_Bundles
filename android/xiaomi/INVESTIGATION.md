@@ -1,5 +1,11 @@
 # xuanyuan missing VoWiFi: verified findings and remaining work
 
+> Superseded status (2026-10-03): the complete pinned OTA has now been downloaded,
+> APK/overlay extraction and scoped policy compilation implemented, and **380
+> statically ready VoWiFi profiles** locally rebuilt and consumer-verified.
+> See [full OTA validation](FULL_OTA_VALIDATION.md). The initial investigation
+> below is retained as historical evidence, not the current missing-input status.
+
 ## Catalog evidence
 
 Inspected a read-only Linux copy of
