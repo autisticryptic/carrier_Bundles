@@ -121,14 +121,30 @@ def decision(config, access, plmn, status):
 
 
 def prune_profiles(connection,evidence):
-    changes=[];reasons=Counter();counts=Counter();removed_profiles=0
+    changes=[];reasons=Counter();classifications=Counter();counts=Counter();removed_profiles=0
+    inventory={kind:Counter() for kind in ('lte','vowifi')}
     evidence_rows_deleted=0; evidence_parents_trimmed=0
     for pid,raw,lte,nr,wifi in connection.execute('SELECT profile_id,config_json,lte_ims_status,nr_ims_status,vowifi_status FROM carrier_profiles ORDER BY profile_id').fetchall():
         config=json.loads(raw)
         matches=connection.execute('SELECT DISTINCT plmn FROM profile_match_rules WHERE profile_id=? AND is_exclusion=0 AND plmn IS NOT NULL',(pid,)).fetchall()
         plmn=matches[0][0] if len(matches)==1 else ''
         verdicts={kind:decision(config,kind,plmn,status) for kind,status in (('lte',lte),('vowifi',wifi))}
-        for kind,verdict in verdicts.items():reasons[kind+':'+verdict['reason']]+=1
+        for kind,status in (('lte',lte),('vowifi',wifi)):
+            # A missing access is not an unsuccessfully tested configuration.
+            # Keep report denominators separate from the deletion decision.
+            stats=inventory[kind]
+            if kind not in config.get('access',{}):
+                stats['absent']+=1
+                continue
+            stats['present']+=1
+            stats['source_'+status]+=1
+            verdict=verdicts[kind]
+            classifications[kind+':'+verdict['reason']]+=1
+            if verdict['covered']:
+                stats['model_covered']+=1
+            else:
+                stats['retained']+=1
+                reasons[kind+':'+verdict['reason']]+=1
         selected=[kind for kind,verdict in verdicts.items() if verdict['covered']]
         if not selected:continue
         kept=copy.deepcopy(config)
@@ -168,7 +184,11 @@ def prune_profiles(connection,evidence):
         changes.append(record)
     return {'policy':POLICY_ID,'profiles_changed':len(changes),'profiles_removed':removed_profiles,
             'access_sections_removed':sum(counts.values()),'removed_by_access':dict(counts),'nr_accesses_removed':0,
-            'retained_reason_counts':dict(sorted(reasons.items())),'fields_removed':0,
+            'retained_reason_counts':dict(sorted(reasons.items())),
+            'classification_counts':dict(sorted(classifications.items())),
+            'access_inventory':{kind:dict(sorted(stats.items())) for kind,stats in inventory.items()},
+            'report_counting':'actual-accesses-only',
+            'fields_removed':0,
             'evidence_rows_deleted_for_partial_accesses':evidence_rows_deleted,
             'normalized_evidence_parents_trimmed':evidence_parents_trimmed,
             'changes':changes,'evidence_scope':'offline requirements model, not live carrier certification',

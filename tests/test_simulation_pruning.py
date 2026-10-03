@@ -124,6 +124,40 @@ class SimulationPruningTests(unittest.TestCase):
                 self.assertEqual(records[0]['access']['nr'],nr['access']['nr'])
                 self.assertEqual(records[1]['sip']['vowifi'],future['sip']['vowifi'])
 
+    def test_reporting_does_not_count_missing_accesses_as_retained_failures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source=fixture(Path(directory)/'source.sqlite3')
+            mixed=standard();mixed['access'].update(standard(True)['access'])
+            mixed['access']['vowifi']['epdg'][0]['address']='special.operator.example'
+            with closing(sqlite3.connect(source)) as conn,conn:
+                conn.execute('pragma foreign_keys=ON')
+                set_profile(conn,'profile-0',standard())
+                set_profile(conn,'profile-1',mixed)
+                result=prune_profiles(conn,{'sha256':'0'*64})
+                self.assertEqual(result['access_inventory']['lte'],
+                    {'present':2,'source_ready':2,'model_covered':2})
+                self.assertEqual(result['access_inventory']['vowifi'],
+                    {'absent':1,'present':1,'source_ready':1,'retained':1})
+                self.assertEqual(result['retained_reason_counts'],{'vowifi:custom_epdg_or_scope':1})
+                self.assertEqual(result['classification_counts']['lte:standard_requirements_covered_by_offline_matrix'],2)
+                self.assertNotIn('vowifi:not_ready_in_source',result['retained_reason_counts'])
+                # Reporting changes do not enlarge the deletion scope.
+                self.assertEqual(result['removed_by_access'],{'lte':2})
+                self.assertEqual(result['profiles_removed'],1)
+
+    def test_reporting_keeps_empty_profiles_distinct_from_uncovered_configurations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source=fixture(Path(directory)/'source.sqlite3')
+            empty=standard();empty['access']={}
+            with closing(sqlite3.connect(source)) as conn,conn:
+                for pid in ('profile-0','profile-1'):set_profile(conn,pid,empty)
+                result=prune_profiles(conn,{'sha256':'0'*64})
+                self.assertEqual(result['access_inventory'],{'lte':{'absent':2},'vowifi':{'absent':2}})
+                self.assertEqual(result['retained_reason_counts'],{})
+                self.assertEqual(result['classification_counts'],{})
+                self.assertEqual(result['profiles_removed'],0)
+                self.assertEqual(conn.execute('select count(*) from carrier_profiles').fetchone()[0],2)
+
     def test_incomplete_or_inconsistent_simulation_evidence_fails_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);path=root/'report.json';base=report_fixture(path)
