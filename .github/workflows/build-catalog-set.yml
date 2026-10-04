@@ -21,8 +21,13 @@ on:
         required: false
         default: latest
         type: string
+      publish_release:
+        description: Explicitly publish a NEW tag after all four sources succeed (default artifact-only)
+        required: false
+        default: false
+        type: boolean
       release_tag:
-        description: Release tag; blank uses the default v7 tag
+        description: New release tag; existing releases/tags are never replaced
         required: false
         default: v0.3.0-catalog-v7
         type: string
@@ -254,6 +259,10 @@ jobs:
           pattern: catalog-*
           path: catalog-sources
           merge-multiple: true
+      - name: Validate current pruning source before packaging
+        run: |
+          python3 -m pip install -r android/pixel/requirements.txt
+          python3 -B -m unittest discover -s tests -v
       - name: Build and verify three variants for each successful source
         env:
           PIXEL_RESULT: ${{ needs.pixel.result }}
@@ -299,7 +308,7 @@ jobs:
             echo 'The SQLite schema and JSON contract stay v7/v1. This is conditional offline evidence, not live carrier certification.'
             echo 'See catalog-variants.json and per-source *.pruning.json. No universal IMS/VoWiFi registration guarantee is made.'
             echo
-            echo 'A failed source is not merged into another database; successful catalogs remain publishable.'
+            echo 'Failed sources remain artifact-only; publication requires all four sources and explicit authorization.'
           } > catalog-set/BUILD_STATUS.md
           (cd catalog-set && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | xargs -d '\n' sha256sum > SHA256SUMS)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -308,40 +317,31 @@ jobs:
           path: catalog-set
           compression-level: 0
           retention-days: 30
-      - name: Remove assets from the previous catalog set
+      - name: Require an unused Release tag
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_release == true && needs.pixel.result == 'success' && needs.ios.result == 'success' && needs.ipcc.result == 'success' && needs.xiaomi.result == 'success' }}
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
-          RELEASE_TAG: ${{ inputs.release_tag || 'v0.3.0-catalog-v7' }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         with:
           script: |
-            let release;
-            try {
-              release = await github.rest.repos.getReleaseByTag({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag: process.env.RELEASE_TAG,
-              });
-            } catch (error) {
-              if (error.status === 404) return;
-              throw error;
+            const tag = process.env.RELEASE_TAG;
+            if (!/^v[0-9A-Za-z][0-9A-Za-z._-]*$/.test(tag || '')) {
+              throw new Error('An explicit new version tag is required');
             }
-            const assets = await github.paginate(
-              github.rest.repos.listReleaseAssets,
-              {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                release_id: release.data.id,
-                per_page: 100,
-              },
-            );
-            for (const asset of assets) {
-              await github.rest.repos.deleteReleaseAsset({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                asset_id: asset.id,
-              });
+            for (const check of [
+              () => github.rest.repos.getReleaseByTag({owner: context.repo.owner, repo: context.repo.repo, tag}),
+              () => github.rest.git.getRef({owner: context.repo.owner, repo: context.repo.repo, ref: `tags/${tag}`}),
+            ]) {
+              try {
+                await check();
+              } catch (error) {
+                if (error.status === 404) continue;
+                throw error;
+              }
+              throw new Error('Refusing to replace an existing Release or tag');
             }
       - name: Publish schema-v7 catalog Release
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_release == true && needs.pixel.result == 'success' && needs.ios.result == 'success' && needs.ipcc.result == 'success' && needs.xiaomi.result == 'success' }}
         uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2.4.1
         with:
           tag_name: ${{ inputs.release_tag || 'v0.3.0-catalog-v7' }}

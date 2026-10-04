@@ -167,9 +167,26 @@ AKAv1/AKAv2、423 认证前后协商、UDP 原报文重传、无关/过期消息
 `simulation_pruning/verified-evidence.json` 记录源文件和测试程序摘要、正例及反例。
 构建校验报告完整性；提供 `--simadmin-source` 时还检查本机代码是否与证据一致。
 
+## 2026-10-04：精简产物验证与发布边界
+
+现有 `v0.3.0-catalog-v7` 的 Release 对象创建于8月，但数据库资源实际在10月3日更新，
+来自旧构建 `37095019351 / c445d53`：未启用运行时审计证据精简，不能代表当前源码。
+不要只看 Release 创建日期，也不要拿本地旧 manifest 当成新发布证明。
+
+`Validate runtime-minimal catalog set` 为 **artifact-only**：复用该固定 Actions 产物中
+摘要匹配的 IPCC/Pixel/IPSW 完整库，使用固定 SHA256 的完整 OTA 重新提取小米（拒绝旧零WFC库），
+再用当前裁剪器和24场景冻结证据生成/核验四来源12库。小米图标同步显式跳过；要求三变体均保持
+380条静态WFC ready，不声称380家实网注册。输出 `actions-verification.json` 和 `SHA256SUMS`。
+本轮所有编译、模拟和实际数据库构建仅在 GitHub Actions 执行。
+
+主 `Build catalog set` 默认只产 artifact。发布须显式 `publish_release=true`、main手动执行、
+四来源全部成功、单测通过且使用新 tag；不再删除旧 Release 的资源。验证分支不会发布。
+原始配置/匹配/NR保持不变；主要缩减仍来自 `field_evidence` 审计行，不扩大配置删除条件。
+
 ## 运行与构建
 
-在本仓库中重新运行模拟，不改动提供的 SimAdmin 源目录：
+以下涉及编译和构建的命令本轮仅在 **GitHub Actions runner** 执行。
+重新运行模拟时不改动提供的 SimAdmin 源目录：
 
 ```bash
 python3 simulations/ims_registration/run.py \
@@ -190,6 +207,7 @@ python3 tools/build_variants.py \
   ../SimAdmin/carrier-bundles-pixel-mustang.sqlite3 \
   ../SimAdmin/carrier-bundles-xiaomi15ultra-xuanyuan-baseband.sqlite3 \
   --simulation-report simulation_pruning/verified-evidence.json \
+  --runtime-minimal \
   --simadmin-source ../SimAdmin \
   --output-dir data/variants/new-catalog-set
 ```

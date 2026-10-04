@@ -1,0 +1,85 @@
+name: Validate runtime-minimal catalog set
+
+# Isolated validation only: no Release/tag writes, no Google/Apple re-download.
+on:
+  push:
+    branches:
+      - 'dev/runtime-minimal/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - name: Install test dependencies and check current source
+        run: |
+          python -m pip install -r android/pixel/requirements.txt
+          python -B -m unittest discover -s tests -v
+      - name: Verify reused Actions source provenance
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |
+            const {data: run} = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner, repo: context.repo.repo, run_id: 37095019351
+            });
+            if (run.conclusion !== 'success' || run.head_sha !== 'c445d5327e721407505643d328595378e8849a2a') {
+              throw new Error('Unexpected source build provenance');
+            }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: carrier-bundles-catalog-set-37095019351
+          run-id: 37095019351
+          github-token: ${{ github.token }}
+          path: input-catalogs
+      - name: Install Xiaomi extraction tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends erofs-utils p7zip-full
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/payload-dumper-go.tar.gz" \
+            https://github.com/ssut/payload-dumper-go/releases/download/2.0.1/payload-dumper-go_2.0.1_linux_amd64.tar.gz
+          echo "ebca8aa8742ba50b6d6acea5172a31023adb57532fa96931fd71d980931f953d  $RUNNER_TEMP/payload-dumper-go.tar.gz" | sha256sum -c -
+          sudo tar -xzf "$RUNNER_TEMP/payload-dumper-go.tar.gz" -C /usr/local/bin payload-dumper-go
+      - name: Download the previously authorized pinned Xiaomi full OTA
+        run: |
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/xuanyuan-full-ota.zip" \
+            https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.301.0.WOAMIXM/xuanyuan_global-ota_full-OS3.0.301.0.WOAMIXM-user-16.0-a67f21cbf3.zip
+          echo "be2572f4082d294d9b4c25d74133daeba016733406320777d916acbb647c2135  $RUNNER_TEMP/xuanyuan-full-ota.zip" | sha256sum -c -
+      - name: Rebuild fixed Xiaomi full catalog (380 WFC-ready profiles)
+        run: |
+          set -euo pipefail
+          mkdir -p rebuilt
+          python3 -u android/xiaomi/build_baseband_catalog.py \
+            --rom-path "$RUNNER_TEMP/xuanyuan-full-ota.zip" --skip-icon-sync \
+            --work-dir "$RUNNER_TEMP/xiaomi-extract" \
+            --output rebuilt/carrier-bundles-xiaomi15ultra-xuanyuan-baseband.sqlite3 \
+            2>&1 | tee xiaomi-rebuild.log
+      - name: Build and verify all four sources and twelve variants
+        run: |
+          set -euo pipefail
+          python3 -u tools/rebuild_runtime_minimal_ci.py \
+            --source-dir input-catalogs \
+            --xiaomi rebuilt/carrier-bundles-xiaomi15ultra-xuanyuan-baseband.sqlite3 \
+            --output-dir catalog-set 2>&1 | tee runtime-minimal.log
+          (cd catalog-set && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: runtime-minimal-validation-${{ github.run_id }}
+          path: |
+            catalog-set/
+            runtime-minimal.log
+            xiaomi-rebuild.log
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 30
