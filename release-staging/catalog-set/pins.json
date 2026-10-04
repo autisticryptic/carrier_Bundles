@@ -1,0 +1,306 @@
+{
+  "commit": "814b057ea9c0982bd636f3e4908117d72bd509be",
+  "run_id": 37201477372,
+  "artifact_id": 11303097227,
+  "artifact_digest": "sha256:4471b902945a6f17f7a928d1c108d74d673f9c5f62c2387c1656a8c3429aa090",
+  "assets": {
+    "actions-verification.json": {
+      "sha256": "dd6b439b68e258cf3222a97017c19915d8803bd41a8126d78424fd645f03fc13",
+      "bytes": 991
+    },
+    "carrier-bundles-ios-ipcc-minimal-no-icons.pruning.json": {
+      "sha256": "cdde26d3a42f10bb3bd78142c6fdad14f2d0fc8c58ca06e182386730fc019235",
+      "bytes": 4390
+    },
+    "carrier-bundles-ios-ipcc-minimal-no-icons.sqlite3": {
+      "sha256": "393a283c36d91a7f6e1d399b9a50ea39f6022637c0e8752de9dc73c4e771dbc1",
+      "bytes": 6336512
+    },
+    "carrier-bundles-ios-ipcc-no-icons.sqlite3": {
+      "sha256": "2c1eb9588b220a37f9205b319bde774fb2254bc9c35eff7dbeb4f8107ed150b4",
+      "bytes": 12267520
+    },
+    "carrier-bundles-ios-ipcc.sqlite3": {
+      "sha256": "1f0d32a78d705c2fd285d9f6b5b82b6e080a10767ef5343fbbe08917b1e3b644",
+      "bytes": 22953984
+    },
+    "carrier-bundles-iphone16promax-27.0.1-minimal-no-icons.pruning.json": {
+      "sha256": "156bcae91847f2d000e6f2746e88f8889375de924797df35074f74990f4fb2a0",
+      "bytes": 3182
+    },
+    "carrier-bundles-iphone16promax-27.0.1-minimal-no-icons.sqlite3": {
+      "sha256": "219d70b37c8828d2817acfcf2c528117e7f2b8f33447b1db4f9e3f58d11e28fe",
+      "bytes": 7360512
+    },
+    "carrier-bundles-iphone16promax-27.0.1-no-icons.sqlite3": {
+      "sha256": "891f0281934965e58b9c142d1f7c1ff19b03ad1a4c5bc98f21600103a8822ffa",
+      "bytes": 15826944
+    },
+    "carrier-bundles-iphone16promax-27.0.1.sqlite3": {
+      "sha256": "d5e76db46a0722503e2354c18366f07513683f8cc5517057c93dc18e37529d40",
+      "bytes": 26476544
+    },
+    "carrier-bundles-pixel-mustang-minimal-no-icons.pruning.json": {
+      "sha256": "4ad5ed7b902e41dd7f5f890628b667fd17d880c427a21b4279cf6eda12df59bd",
+      "bytes": 176493
+    },
+    "carrier-bundles-pixel-mustang-minimal-no-icons.sqlite3": {
+      "sha256": "a896314bd2d407833c6f40705a40c9e14bd0a52e6effd26ce65ee56476412e95",
+      "bytes": 4026368
+    },
+    "carrier-bundles-pixel-mustang-no-icons.sqlite3": {
+      "sha256": "737fe947717b347840cfb1eba5048b5389cea31e39c20849e71cd5f74e231eef",
+      "bytes": 8839168
+    },
+    "carrier-bundles-pixel-mustang.sqlite3": {
+      "sha256": "d1644ff13e85a5f9b4a765928834bdc8c362697bf41a572bd708d1cb16120e1c",
+      "bytes": 17666048
+    },
+    "carrier-bundles-xiaomi15ultra-xuanyuan-baseband-minimal-no-icons.pruning.json": {
+      "sha256": "e85b5e6f127e7356d4007f2986d845f3b9b02e991d2b157bf628fa80f54fb736",
+      "bytes": 3970
+    },
+    "carrier-bundles-xiaomi15ultra-xuanyuan-baseband-minimal-no-icons.sqlite3": {
+      "sha256": "6d918aa6b1d5380dd3aa6a957909f107dd73d78795140d8302c431b30f34afa7",
+      "bytes": 2826240
+    },
+    "carrier-bundles-xiaomi15ultra-xuanyuan-baseband-no-icons.sqlite3": {
+      "sha256": "cd288491f5c3877bdcac450661fb9020354e6552867f2aac13977a246fd8fa1f",
+      "bytes": 9453568
+    },
+    "carrier-bundles-xiaomi15ultra-xuanyuan-baseband.sqlite3": {
+      "sha256": "1eb40d594ef43466d69417d3e27cb8eba1db301be50f7d5f27c363dd15b8d953",
+      "bytes": 9453568
+    },
+    "catalog-variants.json": {
+      "sha256": "d8fda33f9c0491c8035d936e1a948e6d8fe8b77c9f148da2ff4145718387939f",
+      "bytes": 38518
+    },
+    "SHA256SUMS": {
+      "sha256": "626081a6485171bc3f365cbed3df57e9ddc1fb20a488a2a127091f48b5daccbf",
+      "bytes": 2211
+    },
+    "simulation-evidence.json": {
+      "sha256": "308a4e14421e3690077ad1061fc9b4de1b5042ac8766bba5da7448b4f461700a",
+      "bytes": 46196
+    }
+  },
+  "databases": {
+    "carrier-bundles-pixel-mustang.sqlite3": {
+      "counts": {
+        "carrier_profiles": 1444,
+        "carriers": 659,
+        "catalog_metadata": 1,
+        "field_evidence": 10026,
+        "profile_match_rules": 1444,
+        "profile_sources": 2888,
+        "source_artifacts": 107,
+        "visual_assets": 201
+      },
+      "static_client_readiness": {
+        "lte_ims_ready_profiles": 1349,
+        "nr_ims_ready_profiles": 1346,
+        "partial_profiles": 78,
+        "vowifi_ready_profiles": 984
+      }
+    },
+    "carrier-bundles-pixel-mustang-minimal-no-icons.sqlite3": {
+      "counts": {
+        "carrier_profiles": 1444,
+        "carriers": 659,
+        "catalog_metadata": 1,
+        "field_evidence": 0,
+        "profile_match_rules": 1444,
+        "profile_sources": 2888,
+        "source_artifacts": 107,
+        "visual_assets": 0
+      },
+      "static_client_readiness": {
+        "lte_ims_ready_profiles": 1166,
+        "nr_ims_ready_profiles": 1346,
+        "partial_profiles": 78,
+        "vowifi_ready_profiles": 980
+      }
+    },
+    "carrier-bundles-pixel-mustang-no-icons.sqlite3": {
+      "counts": {
+        "carrier_profiles": 1444,
+        "carriers": 659,
+        "catalog_metadata": 1,
+        "field_evidence": 10026,
+        "profile_match_rules": 1444,
+        "profile_sources": 2888,
+        "source_artifacts": 107,
+        "visual_assets": 0
+      },
+      "static_client_readiness": {
+        "lte_ims_ready_profiles": 1349,
+        "nr_ims_ready_profiles": 1346,
+        "partial_profiles": 78,
+        "vowifi_ready_profiles": 984
+      }
+    },
+    "carrier-bundles-iphone16promax-27.0.1.sqlite3": {
+      "counts": {
+        "carrier_profiles": 1962,
+        "carriers": 677,
+        "catalog_metadata": 1,
+        "field_evidence": 18820,
+        "profile_match_rules": 1962,
+        "profile_sources": 3924,
+        "source_artifacts": 136,
+        "visual_assets": 242
+      },
+      "static_client_readiness": {
+        "lte_ims_ready_profiles": 626,
+        "nr_ims_ready_profiles": 36,
+        "partial_profiles": 58,
+        "vowifi_ready_profiles": 707
+      }
+    },
+    "carrier-bundles-iphone16promax-27.0.1-minimal-no-icons.sqlite3": {
+      "counts": {
+        "carrier_profiles": 1962,
+        "carriers": 677,
+        "catalog_metadata": 1,
+        "field_evidence": 0,
+        "profile_match_rules": 1962,
+        "profile_sources": 3924,
+        "source_artifacts": 136,
+        "visual_assets": 0
+      },
+      "static_client_readiness": {
+        "lte_ims_ready_profiles": 626,
+        "nr_ims_ready_profiles": 36,
+        "partial_profiles": 58,
+        "vowifi_ready_profiles": 707
+      }
+    },
+    "carrier-bundles-iphone16promax-27.0.1-no-icons.sqlite3": {
+      "counts": {
+        "carrier_profiles": 1962,
+        "carriers": 677,
+        "catalog_metadata": 1,
+        "field_evidence": 18820,
+        "profile_match_rules": 1962,
+        "profile_sources": 3924,
+        "source_artifacts": 136,
+        "visual_assets": 0
+      },
+      "static_client_readiness": {
+        "lte_ims_ready_profiles": 626,
+        "nr_ims_ready_profiles": 36,
+        "partial_profiles": 58,
+        "vowifi_ready_profiles": 707
+      }
+    },
+    "carrier-bundles-ios-ipcc.sqlite3": {
+      "counts": {
+        "carrier_profiles": 1888,
+        "carriers": 704,
+        "catalog_metadata": 1,
+        "field_evidence": 14807,
+        "profile_match_rules": 1888,
+        "profile_sources": 3776,
+        "source_artifacts": 873,
+        "visual_assets": 243
+      },
+      "static_client_readiness": {
+        "lte_ims_ready_profiles": 263,
+        "nr_ims_ready_profiles": 12,
+        "partial_profiles": 23,
+        "vowifi_ready_profiles": 256
+      }
+    },
+    "carrier-bundles-ios-ipcc-minimal-no-icons.sqlite3": {
+      "counts": {
+        "carrier_profiles": 1887,
+        "carriers": 704,
+        "catalog_metadata": 1,
+        "field_evidence": 0,
+        "profile_match_rules": 1887,
+        "profile_sources": 3774,
+        "source_artifacts": 873,
+        "visual_assets": 0
+      },
+      "static_client_readiness": {
+        "lte_ims_ready_profiles": 262,
+        "nr_ims_ready_profiles": 12,
+        "partial_profiles": 23,
+        "vowifi_ready_profiles": 256
+      }
+    },
+    "carrier-bundles-ios-ipcc-no-icons.sqlite3": {
+      "counts": {
+        "carrier_profiles": 1888,
+        "carriers": 704,
+        "catalog_metadata": 1,
+        "field_evidence": 14807,
+        "profile_match_rules": 1888,
+        "profile_sources": 3776,
+        "source_artifacts": 873,
+        "visual_assets": 0
+      },
+      "static_client_readiness": {
+        "lte_ims_ready_profiles": 263,
+        "nr_ims_ready_profiles": 12,
+        "partial_profiles": 23,
+        "vowifi_ready_profiles": 256
+      }
+    },
+    "carrier-bundles-xiaomi15ultra-xuanyuan-baseband.sqlite3": {
+      "counts": {
+        "carrier_profiles": 941,
+        "carriers": 367,
+        "catalog_metadata": 1,
+        "field_evidence": 19353,
+        "profile_match_rules": 941,
+        "profile_sources": 3229,
+        "source_artifacts": 8,
+        "visual_assets": 0
+      },
+      "static_client_readiness": {
+        "lte_ims_ready_profiles": 644,
+        "nr_ims_ready_profiles": 655,
+        "partial_profiles": 0,
+        "vowifi_ready_profiles": 380
+      }
+    },
+    "carrier-bundles-xiaomi15ultra-xuanyuan-baseband-minimal-no-icons.sqlite3": {
+      "counts": {
+        "carrier_profiles": 941,
+        "carriers": 367,
+        "catalog_metadata": 1,
+        "field_evidence": 0,
+        "profile_match_rules": 941,
+        "profile_sources": 3229,
+        "source_artifacts": 8,
+        "visual_assets": 0
+      },
+      "static_client_readiness": {
+        "lte_ims_ready_profiles": 643,
+        "nr_ims_ready_profiles": 655,
+        "partial_profiles": 0,
+        "vowifi_ready_profiles": 380
+      }
+    },
+    "carrier-bundles-xiaomi15ultra-xuanyuan-baseband-no-icons.sqlite3": {
+      "counts": {
+        "carrier_profiles": 941,
+        "carriers": 367,
+        "catalog_metadata": 1,
+        "field_evidence": 19353,
+        "profile_match_rules": 941,
+        "profile_sources": 3229,
+        "source_artifacts": 8,
+        "visual_assets": 0
+      },
+      "static_client_readiness": {
+        "lte_ims_ready_profiles": 644,
+        "nr_ims_ready_profiles": 655,
+        "partial_profiles": 0,
+        "vowifi_ready_profiles": 380
+      }
+    }
+  }
+}

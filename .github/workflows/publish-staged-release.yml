@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - release-staging/**
+      - '!release-staging/catalog-set/**'
 
 permissions:
   contents: write
@@ -64,4 +65,3 @@ jobs:
             arguments+=(--prerelease)
           fi
           gh release create "${arguments[@]}"
-
